@@ -1,0 +1,234 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+//////////////////////////////////////////////////////
+// ENUMS
+//////////////////////////////////////////////////////
+
+enum OrganizationRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum EmailProvider {
+  GOOGLE
+  MICROSOFT
+}
+
+enum ThreadStatus {
+  ACTIVE
+  NEEDS_ATTENTION
+  ESCALATED
+  CLOSED
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum EvaluationType {
+  SLA_BREACH
+  NEGATIVE_TONE
+  NO_REPLY
+  MANUAL_REVIEW
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum PlanTier {
+  FREE
+  PRO
+  PREMIUM
+  ENTERPRISE
+}
+
+enum FeatureFlag {
+  BASIC_MONITORING
+  MULTI_ACCOUNT
+  CUSTOM_RULES
+  SLACK_INTEGRATION
+  AI_SENTIMENT
+  AI_SUMMARY
+  AI_RISK_SCORING
+}
+
+//////////////////////////////////////////////////////
+// MODELS
+//////////////////////////////////////////////////////
+model User {
+  id          String   @id @default(uuid())
+  OrganizationMember OrganizationMember[]
+  email       String   @unique
+  name        String?
+  emailAccounts   EmailAccount[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Organization {
+  id            String       @id @default(cuid())
+  OrganizationMember OrganizationMember[]
+  name          String
+  planTier      PlanTier     @default(FREE)
+  emailLimit    Int          @default(1)
+  ruleLimit     Int          @default(3)
+  aiEnabled     Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  rules         MonitoringRule[]
+  threads       Thread[]
+  subscription  Subscription?
+}
+
+model OrganizationMember {
+  id              String            @id @default(cuid())
+  userId          String
+  organizationId  String
+  role            OrganizationRole  @default(MEMBER)
+  user            User              @relation(fields: [userId], references: [id])
+  organization    Organization      @relation(fields: [organizationId], references: [id])
+  @@unique([userId, organizationId])
+}
+
+
+model EmailAccount {
+  id                String        @id @default(cuid())
+  userId            String
+  provider          EmailProvider
+  emailAddress      String
+  accessToken       String
+  refreshToken      String?
+  tokenExpiresAt    DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  user              User          @relation(fields: [userId], references: [id])
+  threads           Thread[]
+  @@unique([provider, emailAddress])
+}
+
+model Thread {
+  id                String        @id @default(cuid())
+  organizationId    String
+  emailAccountId    String
+  externalThreadId  String        
+  subject           String?
+  status            ThreadStatus   @default(ACTIVE)
+  lastMessageAt     DateTime
+  lastEvaluatedAt   DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  organization      Organization  @relation(fields: [organizationId], references: [id])
+  emailAccount      EmailAccount  @relation(fields: [emailAccountId], references: [id])
+  messages          Message[]
+  evaluations       Evaluation[]
+  alerts            Alert[]
+  @@unique([emailAccountId, externalThreadId])
+  @@index([organizationId])
+  @@index([status])
+}
+
+model Message {
+  id            String            @id @default(cuid())
+  threadId      String
+  externalId    String            // Gmail messageId
+  direction     MessageDirection
+  sender        String
+  recipients    String[]
+  body          String
+  sentAt        DateTime
+  createdAt     DateTime          @default(now())
+  thread        Thread            @relation(fields: [threadId], references: [id])
+  @@unique([threadId, externalId])
+  @@index([sentAt])
+}
+
+model Evaluation {
+  id            String          @id @default(cuid())
+  threadId      String
+  type          EvaluationType
+  score         Float?
+  result        String          
+  triggered     Boolean         @default(false)
+  createdAt     DateTime        @default(now())
+  thread        Thread          @relation(fields: [threadId], references: [id])
+  @@index([threadId])
+  @@index([type])
+}
+
+model Alert {
+  id            String        @id @default(cuid())
+  threadId      String
+  severity      AlertSeverity
+  title         String
+  description   String
+  resolved      Boolean       @default(false)
+  createdAt     DateTime      @default(now())
+  resolvedAt    DateTime?
+  thread        Thread        @relation(fields: [threadId], references: [id])
+  @@index([severity])
+  @@index([resolved])
+}
+
+model MonitoringRule {
+  id              String       @id @default(cuid())
+  organizationId  String
+  name            String
+  evaluationType  EvaluationType
+  threshold       Float?
+  config          Json         
+  active          Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  @@index([organizationId])
+}
+
+model AuditLog {
+  id            String      @id @default(cuid())
+  organizationId String
+  action        String
+  metadata      Json?
+  createdAt     DateTime    @default(now())
+  @@index([organizationId])
+}
+
+model Subscription {
+  id                    String     @id @default(cuid())
+  organizationId        String     @unique
+  stripeCustomerId      String?
+  stripeSubscriptionId  String?
+  planTier              PlanTier
+  status                String     // active, trialing, past_due, canceled
+  currentPeriodEnd      DateTime?
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  organization          Organization @relation(fields: [organizationId], references: [id])
+}
+
+model UsageRecord {
+  id              String      @id @default(cuid())
+  organizationId  String
+  metric          String      
+  quantity        Int
+  createdAt       DateTime    @default(now())
+  @@index([organizationId])
+}
