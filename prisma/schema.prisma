@@ -54,6 +54,11 @@ enum MessageDirection {
   OUTBOUND
 }
 
+enum CoverageStatus {
+  COVERED
+  UNCOVERED
+}
+
 enum PlanTier {
   FREE
   PRO
@@ -118,6 +123,7 @@ model EmailAccount {
   accessToken       String
   refreshToken      String?
   tokenExpiresAt    DateTime?
+  lastSyncAt        DateTime?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
   user              User          @relation(fields: [userId], references: [id])
@@ -132,6 +138,11 @@ model Thread {
   externalThreadId  String        
   subject           String?
   status            ThreadStatus   @default(ACTIVE)
+  coverageStatus    CoverageStatus @default(COVERED)
+  firstInboundAt    DateTime?
+  firstOutboundAt   DateTime?
+  lastInboundAt     DateTime?
+  lastOutboundAt    DateTime?
   lastMessageAt     DateTime
   lastEvaluatedAt   DateTime?
   createdAt         DateTime      @default(now())

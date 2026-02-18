@@ -4,6 +4,8 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import routes from "./routes";
 import { errorHandler } from "./middleware/errorHandler";
+import { syncAllMailboxes } from "./jobs/sync-mailboxes";
+import { schedule } from "node-cron";
 
 const app = express();
 
@@ -26,4 +28,8 @@ app.use(errorHandler);
 
 app.listen(config.port, () => {
   console.log(`Server is running on port ${config.port}`);
+});
+
+schedule("*/5 * * * *", () => {syncAllMailboxes()}, {
+  timezone: "America/New_York"
 });
