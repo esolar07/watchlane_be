@@ -4,6 +4,7 @@ import {
   getAuthUrls,
   googleCallback,
   microsoftCallback,
+  getInviteAuthUrl,
   getMailboxConnectUrl,
   logout,
   me,
@@ -15,6 +16,7 @@ const router = Router();
 router.get("/urls", getAuthUrls);
 router.get("/google/callback", googleCallback);
 router.get("/microsoft/callback", microsoftCallback);
+router.get("/microsoft/invite-url", getInviteAuthUrl);
 router.post("/logout", logout);
 
 router.get("/me", authenticate, me);

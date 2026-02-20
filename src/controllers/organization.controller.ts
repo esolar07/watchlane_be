@@ -89,6 +89,7 @@ export async function createOrganization(req: Request<{}, {}, CreateOrganization
     id: result.org.id,
     name: result.org.name,
     role: result.member.role,
+    inviteCode: result.org.inviteCode,
     settings: {
       slaMinutes: result.settings.slaMinutes,
       slaEnabled: result.settings.slaEnabled,
@@ -128,12 +129,14 @@ export async function getOrganization(req: Request<{ id: string }>, res: Respons
   }
 
   const org = membership.organization;
+  const isAdminOrOwner = membership.role === "OWNER" || membership.role === "ADMIN";
   res.json({
     id: org.id,
     name: org.name,
     planTier: org.planTier,
     role: membership.role,
     createdAt: org.createdAt,
+    ...(isAdminOrOwner && { inviteCode: org.inviteCode }),
     settings: org.settings ?? null,
   });
 }
@@ -231,4 +234,30 @@ export async function updateOrganization(req: Request<{ id: string }, {}, Update
         }
       : null,
   });
+}
+
+export async function regenerateInviteCode(req: Request<{ id: string }>, res: Response) {
+  const { id } = req.params;
+  const userId = req.user!.userId;
+
+  const membership = await prisma.organizationMember.findUnique({
+    where: { userId_organizationId: { userId, organizationId: id } },
+  });
+
+  if (!membership) {
+    res.status(404).json({ error: "Organization not found" });
+    return;
+  }
+
+  if (membership.role !== "OWNER" && membership.role !== "ADMIN") {
+    res.status(403).json({ error: "Only OWNER or ADMIN can regenerate the invite code" });
+    return;
+  }
+
+  const org = await prisma.organization.update({
+    where: { id },
+    data: { inviteCode: crypto.randomUUID() },
+  });
+
+  res.json({ inviteCode: org.inviteCode });
 }

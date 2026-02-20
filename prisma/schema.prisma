@@ -97,6 +97,7 @@ model Organization {
   emailLimit    Int          @default(1)
   ruleLimit     Int          @default(3)
   aiEnabled     Boolean      @default(false)
+  inviteCode    String       @unique @default(uuid())
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
   rules         MonitoringRule[]
