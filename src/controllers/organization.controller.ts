@@ -3,8 +3,9 @@ import { prisma } from "../lib/prisma";
 import type { CreateOrganizationBody, UpdateOrganizationBody } from "../types/organization";
 
 export async function listOrganizations(req: Request, res: Response) {
+  const userId = req.user!.userId;
   const memberships = await prisma.organizationMember.findMany({
-    where: { userId: req.user!.userId },
+    where: { userId },
     include: {
       organization: {
         select: {
@@ -21,6 +22,11 @@ export async function listOrganizations(req: Request, res: Response) {
               notifyOnBreach: true,
             },
           },
+          emailAccounts: {
+            where: { userId },
+            select: { id: true },
+            take: 1,
+          },
         },
       },
     },
@@ -33,6 +39,7 @@ export async function listOrganizations(req: Request, res: Response) {
       planTier: m.organization.planTier,
       role: m.role,
       createdAt: m.organization.createdAt,
+      mailboxConnected: m.organization.emailAccounts.length > 0,
       settings: m.organization.settings ?? null,
     }))
   );
@@ -118,6 +125,20 @@ export async function getOrganization(req: Request<{ id: string }>, res: Respons
               notifyOnBreach: true,
             },
           },
+          OrganizationMember: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                },
+              },
+            },
+          },
+          emailAccounts: {
+            select: { id: true, userId: true },
+          },
         },
       },
     },
@@ -138,6 +159,12 @@ export async function getOrganization(req: Request<{ id: string }>, res: Respons
     createdAt: org.createdAt,
     ...(isAdminOrOwner && { inviteCode: org.inviteCode }),
     settings: org.settings ?? null,
+    members: org.OrganizationMember.map((m) => ({
+      name: m.user.name,
+      email: m.user.email,
+      role: m.role,
+      mailboxConnected: org.emailAccounts.some((ea) => ea.userId === m.user.id),
+    })),
   });
 }
 

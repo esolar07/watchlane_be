@@ -91,18 +91,20 @@ export async function microsoftCallback(req: Request, res: Response) {
   const stateRaw = req.query.state as string | undefined;
   let flow = "sso";
   let inviteCode: string | undefined;
+  let orgId: string | undefined;
   if (stateRaw) {
     try {
       const parsed = JSON.parse(Buffer.from(stateRaw, "base64url").toString());
       flow = parsed.flow ?? "sso";
       inviteCode = parsed.inviteCode;
+      orgId = parsed.orgId;
     } catch {
       // unparseable state — default to SSO
     }
   }
 
-  if (flow === "mailbox") {
-    return handleMailboxCallback(req, res, code);
+  if (flow === "mailbox" && orgId) {
+    return handleMailboxCallback(req, res, code, orgId);
   }
   if (flow === "invite" && inviteCode) {
     return handleInviteCallback(res, code, inviteCode);
@@ -129,7 +131,7 @@ async function handleSsoCallback(res: Response, code: string) {
   res.redirect(config.frontendUrl);
 }
 
-async function handleMailboxCallback(req: Request, res: Response, code: string) {
+async function handleMailboxCallback(req: Request, res: Response, code: string, orgId: string) {
   const token = req.cookies?.token;
   if (!token) {
     res.status(401).json({ error: "Authentication required to connect mailbox" });
@@ -159,9 +161,10 @@ async function handleMailboxCallback(req: Request, res: Response, code: string) 
   const expiresAt = new Date(Date.now() + tokens.expires_in * 1000);
   const emailAccount = await prisma.emailAccount.upsert({
     where: {
-      provider_emailAddress: {
+      provider_emailAddress_organizationId: {
         provider: "MICROSOFT",
         emailAddress: email,
+        organizationId: orgId,
       },
     },
     update: {
@@ -171,6 +174,7 @@ async function handleMailboxCallback(req: Request, res: Response, code: string) 
     },
     create: {
       userId: user.userId,
+      organizationId: orgId,
       provider: "MICROSOFT",
       emailAddress: email,
       accessToken: encrypt(tokens.access_token),
@@ -254,8 +258,8 @@ export async function getInviteAuthUrl(req: Request, res: Response) {
 
 // ── Mailbox connect URL (authenticated endpoint) ───────────────────
 
-export async function getMailboxConnectUrl(_req: Request, res: Response) {
-  const state = Buffer.from(JSON.stringify({ flow: "mailbox" })).toString("base64url");
+export async function getMailboxConnectUrl(req: Request, res: Response) {
+  const state = Buffer.from(JSON.stringify({ flow: "mailbox", orgId: req.org!.orgId })).toString("base64url");
   const msParams = new URLSearchParams({
     client_id: config.microsoft.clientId,
     response_type: "code",
@@ -288,15 +292,32 @@ export async function me(req: Request, res: Response) {
   }
   const memberships = await prisma.organizationMember.findMany({
     where: { userId: user.id },
-    include: { organization: { select: { id: true, name: true } } },
+    include: {
+      organization: {
+        select: {
+          id: true,
+          name: true,
+          emailAccounts: {
+            where: { userId: user.id },
+            select: { id: true },
+            take: 1,
+          },
+        },
+      },
+    },
   });
 
   res.json({
-    user,
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+    },
     organizations: memberships.map((m) => ({
       id: m.organization.id,
       name: m.organization.name,
       role: m.role,
+      mailboxConnected: m.organization.emailAccounts.length > 0,
     })),
   });
 }
