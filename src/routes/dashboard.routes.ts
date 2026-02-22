@@ -1,11 +1,10 @@
 import { Router } from "express";
 import { authenticate, attachOrgContext } from "../middleware/auth";
-import { getSummary } from "../controllers/dashboard.controller";
+import { getSummary, getCoverageMetrics } from "../controllers/dashboard.controller";
 
 const router = Router();
 
-router.use(authenticate, attachOrgContext);
-
-router.get("/summary", getSummary);
+router.get("/summary", authenticate, attachOrgContext, getSummary);
+router.get("/coverage", authenticate, getCoverageMetrics);
 
 export default router;

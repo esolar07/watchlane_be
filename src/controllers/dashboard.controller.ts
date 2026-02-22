@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { prisma } from "../lib/prisma";
+import { getDashboardMetrics } from "../services/dashboard.service";
 
 export async function getSummary(req: Request, res: Response) {
   const orgId = req.org!.orgId;
@@ -59,4 +60,76 @@ export async function getSummary(req: Request, res: Response) {
     avgResponseTimeMinutes,
     oldestUncoveredMinutes,
   });
+}
+
+export async function getCoverageMetrics(req: Request, res: Response) {
+  const { startDate, endDate, repId, orgId } = req.query;
+
+  if (!startDate || !endDate) {
+    res.status(400).json({ error: "startDate and endDate are required" });
+    return;
+  }
+
+  const start = new Date(startDate as string);
+  const end = new Date(endDate as string);
+
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    res.status(400).json({ error: "Invalid date format" });
+    return;
+  }
+
+  const memberships = await prisma.organizationMember.findMany({
+    where: { userId: req.user!.userId },
+    include: { organization: { select: { name: true } } },
+  });
+
+  if (memberships.length === 0) {
+    res.status(403).json({ error: "User is not a member of any organization" });
+    return;
+  }
+
+  const selectedOrgId = orgId as string | undefined;
+
+  if (selectedOrgId) {
+    const isMember = memberships.some(
+      (m) => m.organizationId === selectedOrgId
+    );
+    if (!isMember) {
+      res.status(403).json({ error: "User is not a member of the specified organization" });
+      return;
+    }
+
+    const org = memberships.find((m) => m.organizationId === selectedOrgId)!;
+    const metrics = await getDashboardMetrics({
+      organizationId: selectedOrgId,
+      startDate: start,
+      endDate: end,
+      repId: repId as string | undefined,
+    });
+
+    res.json({
+      organizationId: org.organizationId,
+      organizationName: org.organization.name,
+      ...metrics,
+    });
+    return;
+  }
+
+  const results = await Promise.all(
+    memberships.map(async (m) => {
+      const metrics = await getDashboardMetrics({
+        organizationId: m.organizationId,
+        startDate: start,
+        endDate: end,
+        repId: repId as string | undefined,
+      });
+      return {
+        organizationId: m.organizationId,
+        organizationName: m.organization.name,
+        ...metrics,
+      };
+    })
+  );
+
+  res.json(results);
 }
