@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { prisma } from "../lib/prisma";
 import { getDashboardMetrics } from "../services/dashboard.service";
+import { syncUserMailboxes } from "../jobs/sync-mailboxes";
 
 export async function getSummary(req: Request, res: Response) {
   const orgId = req.org!.orgId;
@@ -132,4 +133,13 @@ export async function getCoverageMetrics(req: Request, res: Response) {
   );
 
   res.json(results);
+}
+
+export async function triggerSync(req: Request, res: Response) {
+  try {
+    await syncUserMailboxes(req.user!.userId);
+    res.json({ message: "Sync completed successfully" });
+  } catch (err) {
+    res.status(500).json({ error: "Sync failed" });
+  }
 }
