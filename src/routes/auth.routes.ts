@@ -25,7 +25,7 @@ router.get(
   "/microsoft/connect-url",
   authenticate,
   attachOrgContext,
-  requireRole("OWNER", "ADMIN"),
+  requireRole("OWNER", "ADMIN", "MEMBER"),
   getMailboxConnectUrl
 );
 

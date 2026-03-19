@@ -9,9 +9,11 @@ export interface CreateOrganizationBody {
 
 export interface UpdateOrganizationBody {
   name?: string;
-  slaMinutes?: number;
-  slaEnabled?: boolean;
-  weeklyReportEnabled?: boolean;
-  weeklyReportDay?: number | null;
-  notifyOnBreach?: boolean;
+  settings?: {
+    slaMinutes?: number;
+    slaEnabled?: boolean;
+    weeklyReportEnabled?: boolean;
+    weeklyReportDay?: number | null;
+    notifyOnBreach?: boolean;
+  };
 }

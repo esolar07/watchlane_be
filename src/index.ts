@@ -30,6 +30,10 @@ app.listen(config.port, () => {
   console.log(`Server is running on port ${config.port}`);
 });
 
-schedule("*/5 * * * *", () => {syncAllMailboxes()}, {
+schedule("*/5 * * * *", () => {
+  syncAllMailboxes().catch((err) =>
+    console.error("[cron] Unhandled sync error:", err)
+  );
+}, {
   timezone: "America/New_York"
 });

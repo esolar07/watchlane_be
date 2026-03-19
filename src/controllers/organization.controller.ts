@@ -171,7 +171,8 @@ export async function getOrganization(req: Request<{ id: string }>, res: Respons
 export async function updateOrganization(req: Request<{ id: string }, {}, UpdateOrganizationBody>, res: Response) {
   const { id } = req.params;
   const userId = req.user!.userId;
-  const { name, slaMinutes, slaEnabled, weeklyReportEnabled, weeklyReportDay, notifyOnBreach } = req.body;
+  const { name, settings } = req.body;
+  const { slaMinutes, slaEnabled, weeklyReportEnabled, weeklyReportDay, notifyOnBreach } = settings ?? {};
 
   const membership = await prisma.organizationMember.findUnique({
     where: { userId_organizationId: { userId, organizationId: id } },
