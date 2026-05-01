@@ -76,190 +76,256 @@ enum FeatureFlag {
   AI_RISK_SCORING
 }
 
+enum SystemFolderKind {
+  INBOX
+  SENT_ITEMS
+  DRAFTS
+  JUNK_EMAIL
+  DELETED_ITEMS
+}
+
+enum RuleScopeKind {
+  ORGANIZATION
+  ACCOUNT
+  FOLDER
+}
+
 //////////////////////////////////////////////////////
 // MODELS
 //////////////////////////////////////////////////////
 model User {
-  id          String   @id @default(uuid())
+  id                 String               @id @default(uuid())
   OrganizationMember OrganizationMember[]
-  email       String   @unique
-  name        String?
-  emailAccounts   EmailAccount[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  email              String               @unique
+  name               String?
+  emailAccounts      EmailAccount[]
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
 }
 
 model Organization {
-  id            String       @id @default(cuid())
+  id                 String                @id @default(cuid())
   OrganizationMember OrganizationMember[]
-  name          String
-  planTier      PlanTier     @default(FREE)
-  emailLimit    Int          @default(1)
-  ruleLimit     Int          @default(3)
-  aiEnabled     Boolean      @default(false)
-  inviteCode    String       @unique @default(uuid())
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  rules         MonitoringRule[]
-  threads       Thread[]
-  emailAccounts EmailAccount[]
-  subscription  Subscription?
-  settings      OrganizationSettings?
+  name               String
+  planTier           PlanTier              @default(FREE)
+  emailLimit         Int                   @default(1)
+  ruleLimit          Int                   @default(3)
+  aiEnabled          Boolean               @default(false)
+  inviteCode         String                @unique @default(uuid())
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  rules              MonitoringRule[]
+  threads            Thread[]
+  emailAccounts      EmailAccount[]
+  subscription       Subscription?
+  settings           OrganizationSettings?
 }
 
 model OrganizationMember {
-  id              String            @id @default(cuid())
-  userId          String
-  organizationId  String
-  role            OrganizationRole  @default(MEMBER)
-  user            User              @relation(fields: [userId], references: [id])
-  organization    Organization      @relation(fields: [organizationId], references: [id])
+  id             String           @id @default(cuid())
+  userId         String
+  organizationId String
+  role           OrganizationRole @default(MEMBER)
+  user           User             @relation(fields: [userId], references: [id])
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+
   @@unique([userId, organizationId])
 }
 
-
 model EmailAccount {
-  id                String        @id @default(cuid())
-  userId            String
-  organizationId    String
-  provider          EmailProvider
-  emailAddress      String
-  accessToken       String
-  refreshToken      String?
-  tokenExpiresAt    DateTime?
-  lastSyncAt        DateTime?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  user              User          @relation(fields: [userId], references: [id])
-  organization      Organization  @relation(fields: [organizationId], references: [id])
-  threads           Thread[]
+  id               String           @id @default(cuid())
+  userId           String
+  organizationId   String
+  provider         EmailProvider
+  emailAddress     String
+  accessToken      String
+  refreshToken     String?
+  tokenExpiresAt   DateTime?
+  lastSyncAt       DateTime?
+  foldersDeltaLink String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  user             User             @relation(fields: [userId], references: [id])
+  organization     Organization     @relation(fields: [organizationId], references: [id])
+  threads          Thread[]
+  folders          EmailFolder[]
+  scopedRules      MonitoringRule[] @relation("RuleAccountScope")
+
   @@unique([provider, emailAddress, organizationId])
 }
 
+model EmailFolder {
+  id             String            @id @default(cuid())
+  emailAccountId String
+  externalId     String
+  parentId       String?
+  name           String
+  path           String
+  isSystem       Boolean           @default(false)
+  systemKind     SystemFolderKind?
+  monitored      Boolean?
+  isNew          Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  emailAccount EmailAccount     @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
+  parent       EmailFolder?     @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children     EmailFolder[]    @relation("FolderHierarchy")
+  messages     Message[]
+  scopedRules  MonitoringRule[] @relation("RuleFolderScope")
+
+  @@unique([emailAccountId, externalId])
+  @@index([emailAccountId, parentId])
+  @@index([emailAccountId, path])
+}
+
 model Thread {
-  id                String        @id @default(cuid())
-  organizationId    String
-  emailAccountId    String
-  externalThreadId  String        
-  subject           String?
-  status            ThreadStatus   @default(ACTIVE)
-  coverageStatus    CoverageStatus @default(COVERED)
-  firstInboundAt    DateTime?
-  firstOutboundAt   DateTime?
-  lastInboundAt     DateTime?
-  lastOutboundAt    DateTime?
-  lastMessageAt     DateTime
-  lastEvaluatedAt   DateTime?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  organization      Organization  @relation(fields: [organizationId], references: [id])
-  emailAccount      EmailAccount  @relation(fields: [emailAccountId], references: [id])
-  messages          Message[]
-  evaluations       Evaluation[]
-  alerts            Alert[]
+  id               String         @id @default(cuid())
+  organizationId   String
+  emailAccountId   String
+  externalThreadId String
+  subject          String?
+  status           ThreadStatus   @default(ACTIVE)
+  coverageStatus   CoverageStatus @default(COVERED)
+  firstInboundAt   DateTime?
+  firstOutboundAt  DateTime?
+  lastInboundAt    DateTime?
+  lastOutboundAt   DateTime?
+  lastMessageAt    DateTime
+  lastEvaluatedAt  DateTime?
+  folderIds        String[]       @default([])
+  firstResponseMinutes  Int?
+  hadLateFirstResponse  Boolean   @default(false)
+  dismissedAt           DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  organization     Organization   @relation(fields: [organizationId], references: [id])
+  emailAccount     EmailAccount   @relation(fields: [emailAccountId], references: [id])
+  messages         Message[]
+  evaluations      Evaluation[]
+  alerts           Alert[]
+
   @@unique([emailAccountId, externalThreadId])
   @@index([organizationId])
   @@index([status])
+  @@index([folderIds], type: Gin)
 }
 
 model Message {
-  id            String            @id @default(cuid())
-  threadId      String
-  externalId    String            // Gmail messageId
-  direction     MessageDirection
-  sender        String
-  recipients    String[]
-  body          String
-  sentAt        DateTime
-  createdAt     DateTime          @default(now())
-  thread        Thread            @relation(fields: [threadId], references: [id])
+  id         String           @id @default(cuid())
+  threadId   String
+  externalId String // Gmail messageId
+  direction  MessageDirection
+  sender     String
+  recipients String[]
+  body       String
+  sentAt     DateTime
+  folderId   String?
+  isTracked  Boolean          @default(true)
+  createdAt  DateTime         @default(now())
+  thread     Thread           @relation(fields: [threadId], references: [id])
+  folder     EmailFolder?     @relation(fields: [folderId], references: [id], onDelete: SetNull)
+
   @@unique([threadId, externalId])
   @@index([sentAt])
+  @@index([folderId])
+  @@index([isTracked])
 }
 
 model Evaluation {
-  id            String          @id @default(cuid())
-  threadId      String
-  type          EvaluationType
-  score         Float?
-  result        String          
-  triggered     Boolean         @default(false)
-  createdAt     DateTime        @default(now())
-  thread        Thread          @relation(fields: [threadId], references: [id])
+  id        String         @id @default(cuid())
+  threadId  String
+  type      EvaluationType
+  score     Float?
+  result    String
+  triggered Boolean        @default(false)
+  createdAt DateTime       @default(now())
+  thread    Thread         @relation(fields: [threadId], references: [id])
+
   @@index([threadId])
   @@index([type])
 }
 
 model Alert {
-  id            String        @id @default(cuid())
-  threadId      String
-  severity      AlertSeverity
-  title         String
-  description   String
-  resolved      Boolean       @default(false)
-  createdAt     DateTime      @default(now())
-  resolvedAt    DateTime?
-  thread        Thread        @relation(fields: [threadId], references: [id])
+  id          String        @id @default(cuid())
+  threadId    String
+  severity    AlertSeverity
+  title       String
+  description String
+  resolved    Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+  resolvedAt  DateTime?
+  thread      Thread        @relation(fields: [threadId], references: [id])
+
   @@index([severity])
   @@index([resolved])
 }
 
 model MonitoringRule {
-  id              String       @id @default(cuid())
-  organizationId  String
-  name            String
-  evaluationType  EvaluationType
-  threshold       Float?
-  config          Json         
-  active          Boolean      @default(true)
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-  organization    Organization @relation(fields: [organizationId], references: [id])
+  id             String         @id @default(cuid())
+  organizationId String
+  name           String
+  evaluationType EvaluationType
+  threshold      Float?
+  config         Json
+  active         Boolean        @default(true)
+  scopeKind      RuleScopeKind  @default(ORGANIZATION)
+  emailAccountId String?
+  folderId       String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+  emailAccount   EmailAccount?  @relation("RuleAccountScope", fields: [emailAccountId], references: [id], onDelete: Cascade)
+  folder         EmailFolder?   @relation("RuleFolderScope", fields: [folderId], references: [id], onDelete: SetNull)
+
   @@index([organizationId])
+  @@index([organizationId, evaluationType, scopeKind])
 }
 
 model AuditLog {
-  id            String      @id @default(cuid())
+  id             String   @id @default(cuid())
   organizationId String
-  action        String
-  metadata      Json?
-  createdAt     DateTime    @default(now())
+  action         String
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
   @@index([organizationId])
 }
 
 model Subscription {
-  id                    String     @id @default(cuid())
-  organizationId        String     @unique
-  stripeCustomerId      String?
-  stripeSubscriptionId  String?
-  planTier              PlanTier
-  status                String     // active, trialing, past_due, canceled
-  currentPeriodEnd      DateTime?
-  createdAt             DateTime   @default(now())
-  updatedAt             DateTime   @updatedAt
-  organization          Organization @relation(fields: [organizationId], references: [id])
+  id                   String       @id @default(cuid())
+  organizationId       String       @unique
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  planTier             PlanTier
+  status               String // active, trialing, past_due, canceled
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  organization         Organization @relation(fields: [organizationId], references: [id])
 }
 
 model UsageRecord {
-  id              String      @id @default(cuid())
-  organizationId  String
-  metric          String
-  quantity        Int
-  createdAt       DateTime    @default(now())
+  id             String   @id @default(cuid())
+  organizationId String
+  metric         String
+  quantity       Int
+  createdAt      DateTime @default(now())
+
   @@index([organizationId])
 }
 
 model OrganizationSettings {
-  id                  String   @id @default(uuid())
-  organizationId      String   @unique
-  slaMinutes          Int      @default(560)
-  slaEnabled          Boolean  @default(false)
-  weeklyReportEnabled Boolean  @default(false)
+  id                  String  @id @default(uuid())
+  organizationId      String  @unique
+  slaMinutes          Int     @default(560)
+  slaEnabled          Boolean @default(false)
+  weeklyReportEnabled Boolean @default(false)
   weeklyReportDay     Int?
-  notifyOnBreach      Boolean  @default(false)
+  notifyOnBreach      Boolean @default(false)
 
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  organization        Organization @relation(fields: [organizationId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
 }

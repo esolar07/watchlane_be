@@ -1,6 +1,10 @@
 import type { Request, Response } from "express";
 import { prisma } from "../lib/prisma";
 import { getDashboardMetrics } from "../services/dashboard.service";
+import { getOperationalSnapshot } from "../services/dashboard-operational.service";
+import { getPerformanceReport } from "../services/dashboard-performance.service";
+import { getAggregateDashboard } from "../services/dashboard-aggregate.service";
+import { getOrgDashboard } from "../services/dashboard-org.service";
 import { syncUserMailboxes } from "../jobs/sync-mailboxes";
 
 export async function getSummary(req: Request, res: Response) {
@@ -142,4 +146,83 @@ export async function triggerSync(req: Request, res: Response) {
   } catch (err) {
     res.status(500).json({ error: "Sync failed" });
   }
+}
+
+export async function getOperational(req: Request, res: Response) {
+  const orgError = await ensureOrgMembership(req, res);
+  if (orgError) return;
+  const repId = req.query.repId as string | undefined;
+  const snapshot = await getOperationalSnapshot({ organizationId: req.org!.orgId, repId });
+  res.json(snapshot);
+}
+
+export async function getAggregate(req: Request, res: Response) {
+  if (!req.user) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  const range = parseDateRange(req);
+  if (range.error) {
+    res.status(400).json({ error: range.error });
+    return;
+  }
+  const orgIds = await loadUserOrgIds(req.user.userId);
+  if (orgIds.length === 0) {
+    res.status(403).json({ error: "User is not a member of any organization" });
+    return;
+  }
+  const result = await getAggregateDashboard({ organizationIds: orgIds, startDate: range.start!, endDate: range.end! });
+  res.json(result);
+}
+
+async function loadUserOrgIds(userId: string): Promise<string[]> {
+  const memberships = await prisma.organizationMember.findMany({
+    where: { userId },
+    select: { organizationId: true },
+  });
+  return memberships.map((m) => m.organizationId);
+}
+
+export async function getOrgDashboardEndpoint(req: Request, res: Response) {
+  const orgError = await ensureOrgMembership(req, res);
+  if (orgError) return;
+  const range = parseDateRange(req);
+  if (range.error) {
+    res.status(400).json({ error: range.error });
+    return;
+  }
+  const repId = req.query.repId as string | undefined;
+  const dashboard = await getOrgDashboard({ organizationId: req.org!.orgId, startDate: range.start!, endDate: range.end!, repId });
+  res.json(dashboard);
+}
+
+export async function getPerformance(req: Request, res: Response) {
+  const orgError = await ensureOrgMembership(req, res);
+  if (orgError) return;
+  const range = parseDateRange(req);
+  if (range.error) {
+    res.status(400).json({ error: range.error });
+    return;
+  }
+  const repId = req.query.repId as string | undefined;
+  const report = await getPerformanceReport({ organizationId: req.org!.orgId, startDate: range.start!, endDate: range.end!, repId });
+  res.json(report);
+}
+
+async function ensureOrgMembership(req: Request, res: Response): Promise<boolean> {
+  if (!req.org) {
+    res.status(403).json({ error: "Organization context required" });
+    return true;
+  }
+  return false;
+}
+
+function parseDateRange(req: Request): { start?: Date; end?: Date; error?: string } {
+  const startRaw = req.query.startDate as string | undefined;
+  const endRaw = req.query.endDate as string | undefined;
+  if (!startRaw || !endRaw) return { error: "startDate and endDate are required" };
+  const start = new Date(startRaw);
+  const end = new Date(endRaw);
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) return { error: "Invalid date format" };
+  return { start, end };
 }
