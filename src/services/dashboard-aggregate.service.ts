@@ -2,9 +2,17 @@ import { prisma } from "../lib/prisma";
 
 const DEFAULT_SLA_MINUTES = 560;
 
+interface ImpactedOrg {
+  organizationId: string;
+  organizationName: string;
+  overdueCount: number;
+}
+
 interface AggregateDashboard {
   windowStart: Date;
   windowEnd: Date;
+  totalOrgs: number;
+  impactedOrgs: ImpactedOrg[];
   totalOpenThreads: number;
   totalOverdue: number;
   totalAtRisk: number;
@@ -30,12 +38,14 @@ export async function getAggregateDashboard(params: AggregateParams): Promise<Ag
 
 function assembleAggregate(
   params: AggregateParams,
-  snapshot: { open: number; overdue: number; atRisk: number; onTrack: number; oldestGapMinutes: number },
+  snapshot: { open: number; overdue: number; atRisk: number; onTrack: number; oldestGapMinutes: number; impactedOrgs: ImpactedOrg[] },
   historical: { avgResponseMinutes: number; slaCompliancePercent: number }
 ): AggregateDashboard {
   return {
     windowStart: params.startDate,
     windowEnd: params.endDate,
+    totalOrgs: params.organizationIds.length,
+    impactedOrgs: snapshot.impactedOrgs,
     totalOpenThreads: snapshot.open,
     totalOverdue: snapshot.overdue,
     totalAtRisk: snapshot.atRisk,
@@ -52,15 +62,27 @@ async function computeOpenSnapshot(organizationIds: string[]) {
   const threads = await loadOpenThreadsAcrossOrgs(organizationIds);
   const now = Date.now();
   let overdue = 0, atRisk = 0, onTrack = 0, oldestGapMs = 0;
+  const overdueByOrg = new Map<string, { name: string; count: number }>();
   for (const thread of threads) {
     const bucket = classifyUrgency(thread, now);
-    if (bucket === "overdue") overdue++;
+    if (bucket === "overdue") { overdue++; recordImpactedOrg(overdueByOrg, thread); }
     else if (bucket === "at_risk") atRisk++;
     else onTrack++;
     const elapsedMs = now - thread.lastInboundAt!.getTime();
     if (elapsedMs > oldestGapMs) oldestGapMs = elapsedMs;
   }
-  return { open: threads.length, overdue, atRisk, onTrack, oldestGapMinutes: Math.round(oldestGapMs / 60_000) };
+  return { open: threads.length, overdue, atRisk, onTrack, oldestGapMinutes: Math.round(oldestGapMs / 60_000), impactedOrgs: buildImpactedList(overdueByOrg) };
+}
+
+function recordImpactedOrg(map: Map<string, { name: string; count: number }>, thread: OpenThreadForBucketing): void {
+  const existing = map.get(thread.organizationId);
+  if (existing) existing.count++;
+  else map.set(thread.organizationId, { name: thread.organization.name, count: 1 });
+}
+
+function buildImpactedList(map: Map<string, { name: string; count: number }>): ImpactedOrg[] {
+  const entries = Array.from(map.entries()).map(([id, v]) => ({ organizationId: id, organizationName: v.name, overdueCount: v.count }));
+  return entries.sort((a, b) => b.overdueCount - a.overdueCount);
 }
 
 async function loadOpenThreadsAcrossOrgs(organizationIds: string[]) {
@@ -72,15 +94,17 @@ async function loadOpenThreadsAcrossOrgs(organizationIds: string[]) {
       dismissedAt: null,
     },
     select: {
+      organizationId: true,
       lastInboundAt: true,
-      organization: { select: { settings: { select: { slaMinutes: true } } } },
+      organization: { select: { name: true, settings: { select: { slaMinutes: true } } } },
     },
   });
 }
 
 interface OpenThreadForBucketing {
+  organizationId: string;
   lastInboundAt: Date | null;
-  organization: { settings: { slaMinutes: number } | null };
+  organization: { name: string; settings: { slaMinutes: number } | null };
 }
 
 function classifyUrgency(thread: OpenThreadForBucketing, now: number): "overdue" | "at_risk" | "on_track" {
