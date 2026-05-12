@@ -1,4 +1,4 @@
-import { OrganizationRole } from "../generated/prisma/client";
+import { OrganizationRole, WorkspaceRole } from "../generated/prisma/client";
 
 export interface JwtPayload {
   userId: string;
@@ -11,6 +11,13 @@ export interface OrgContext {
   orgId: string;
   orgName: string;
   role: OrganizationRole;
+  workspaceId: string;
+}
+
+export interface WorkspaceContext {
+  workspaceId: string;
+  workspaceName: string;
+  role: WorkspaceRole;
 }
 
 declare global {
@@ -18,6 +25,7 @@ declare global {
     interface Request {
       user?: JwtPayload;
       org?: OrgContext;
+      workspace?: WorkspaceContext;
     }
   }
 }

@@ -5,6 +5,6 @@ import { listEmailAccounts, getEmailAccount } from "../controllers/email-account
 const router = Router();
 
 router.get("/email-accounts", authenticate, attachOrgContext, listEmailAccounts);
-router.get("/email-accounts/:accountId", authenticate, getEmailAccount);
+router.get("/email-accounts/:accountId", authenticate, attachOrgContext, getEmailAccount);
 
 export default router;

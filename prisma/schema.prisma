@@ -23,6 +23,12 @@ enum OrganizationRole {
   MEMBER
 }
 
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
 enum EmailProvider {
   GOOGLE
   MICROSOFT
@@ -59,21 +65,9 @@ enum CoverageStatus {
   UNCOVERED
 }
 
-enum PlanTier {
-  FREE
-  PRO
-  PREMIUM
-  ENTERPRISE
-}
-
-enum FeatureFlag {
-  BASIC_MONITORING
-  MULTI_ACCOUNT
-  CUSTOM_RULES
-  SLACK_INTEGRATION
-  AI_SENTIMENT
-  AI_SUMMARY
-  AI_RISK_SCORING
+enum PlanInterval {
+  MONTH
+  YEAR
 }
 
 enum SystemFolderKind {
@@ -96,6 +90,7 @@ enum RuleScopeKind {
 model User {
   id                 String               @id @default(uuid())
   OrganizationMember OrganizationMember[]
+  WorkspaceMember    WorkspaceMember[]
   email              String               @unique
   name               String?
   emailAccounts      EmailAccount[]
@@ -103,22 +98,52 @@ model User {
   updatedAt          DateTime             @updatedAt
 }
 
+model Workspace {
+  id            String            @id @default(cuid())
+  name          String
+  currentPlanId String
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  members       WorkspaceMember[]
+  organizations Organization[]
+  subscription  Subscription?
+  currentPlan   Plan              @relation("WorkspaceCurrentPlan", fields: [currentPlanId], references: [id])
+
+  @@index([currentPlanId])
+}
+
+model WorkspaceMember {
+  id          String        @id @default(cuid())
+  userId      String
+  workspaceId String
+  role        WorkspaceRole @default(MEMBER)
+  createdAt   DateTime      @default(now())
+  user        User          @relation(fields: [userId], references: [id])
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@index([workspaceId])
+}
+
 model Organization {
   id                 String                @id @default(cuid())
+  workspaceId        String
   OrganizationMember OrganizationMember[]
   name               String
-  planTier           PlanTier              @default(FREE)
-  emailLimit         Int                   @default(1)
-  ruleLimit          Int                   @default(3)
-  aiEnabled          Boolean               @default(false)
   inviteCode         String                @unique @default(uuid())
   createdAt          DateTime              @default(now())
   updatedAt          DateTime              @updatedAt
   rules              MonitoringRule[]
   threads            Thread[]
   emailAccounts      EmailAccount[]
-  subscription       Subscription?
+  folders            EmailFolder[]
+  messages           Message[]
+  evaluations        Evaluation[]
+  alerts             Alert[]
   settings           OrganizationSettings?
+  workspace          Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+
+  @@index([workspaceId])
 }
 
 model OrganizationMember {
@@ -156,6 +181,7 @@ model EmailAccount {
 
 model EmailFolder {
   id             String            @id @default(cuid())
+  organizationId String
   emailAccountId String
   externalId     String
   parentId       String?
@@ -168,6 +194,7 @@ model EmailFolder {
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 
+  organization Organization     @relation(fields: [organizationId], references: [id])
   emailAccount EmailAccount     @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
   parent       EmailFolder?     @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
   children     EmailFolder[]    @relation("FolderHierarchy")
@@ -175,35 +202,36 @@ model EmailFolder {
   scopedRules  MonitoringRule[] @relation("RuleFolderScope")
 
   @@unique([emailAccountId, externalId])
+  @@index([organizationId])
   @@index([emailAccountId, parentId])
   @@index([emailAccountId, path])
 }
 
 model Thread {
-  id               String         @id @default(cuid())
-  organizationId   String
-  emailAccountId   String
-  externalThreadId String
-  subject          String?
-  status           ThreadStatus   @default(ACTIVE)
-  coverageStatus   CoverageStatus @default(COVERED)
-  firstInboundAt   DateTime?
-  firstOutboundAt  DateTime?
-  lastInboundAt    DateTime?
-  lastOutboundAt   DateTime?
-  lastMessageAt    DateTime
-  lastEvaluatedAt  DateTime?
-  folderIds        String[]       @default([])
-  firstResponseMinutes  Int?
-  hadLateFirstResponse  Boolean   @default(false)
-  dismissedAt           DateTime?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-  organization     Organization   @relation(fields: [organizationId], references: [id])
-  emailAccount     EmailAccount   @relation(fields: [emailAccountId], references: [id])
-  messages         Message[]
-  evaluations      Evaluation[]
-  alerts           Alert[]
+  id                   String         @id @default(cuid())
+  organizationId       String
+  emailAccountId       String
+  externalThreadId     String
+  subject              String?
+  status               ThreadStatus   @default(ACTIVE)
+  coverageStatus       CoverageStatus @default(COVERED)
+  firstInboundAt       DateTime?
+  firstOutboundAt      DateTime?
+  lastInboundAt        DateTime?
+  lastOutboundAt       DateTime?
+  lastMessageAt        DateTime
+  lastEvaluatedAt      DateTime?
+  folderIds            String[]       @default([])
+  firstResponseMinutes Int?
+  hadLateFirstResponse Boolean        @default(false)
+  dismissedAt          DateTime?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  organization         Organization   @relation(fields: [organizationId], references: [id])
+  emailAccount         EmailAccount   @relation(fields: [emailAccountId], references: [id])
+  messages             Message[]
+  evaluations          Evaluation[]
+  alerts               Alert[]
 
   @@unique([emailAccountId, externalThreadId])
   @@index([organizationId])
@@ -212,51 +240,61 @@ model Thread {
 }
 
 model Message {
-  id         String           @id @default(cuid())
-  threadId   String
-  externalId String // Gmail messageId
-  direction  MessageDirection
-  sender     String
-  recipients String[]
-  body       String
-  sentAt     DateTime
-  folderId   String?
-  isTracked  Boolean          @default(true)
-  createdAt  DateTime         @default(now())
-  thread     Thread           @relation(fields: [threadId], references: [id])
-  folder     EmailFolder?     @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  id             String           @id @default(cuid())
+  organizationId String
+  threadId       String
+  externalId     String // Gmail messageId
+  direction      MessageDirection
+  sender         String
+  recipients     String[]
+  body           String
+  sentAt         DateTime
+  folderId       String?
+  isTracked      Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  thread         Thread           @relation(fields: [threadId], references: [id])
+  folder         EmailFolder?     @relation(fields: [folderId], references: [id], onDelete: SetNull)
 
   @@unique([threadId, externalId])
+  @@index([organizationId])
+  @@index([organizationId, sentAt])
   @@index([sentAt])
   @@index([folderId])
   @@index([isTracked])
 }
 
 model Evaluation {
-  id        String         @id @default(cuid())
-  threadId  String
-  type      EvaluationType
-  score     Float?
-  result    String
-  triggered Boolean        @default(false)
-  createdAt DateTime       @default(now())
-  thread    Thread         @relation(fields: [threadId], references: [id])
+  id             String         @id @default(cuid())
+  organizationId String
+  threadId       String
+  type           EvaluationType
+  score          Float?
+  result         String
+  triggered      Boolean        @default(false)
+  createdAt      DateTime       @default(now())
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+  thread         Thread         @relation(fields: [threadId], references: [id])
 
+  @@index([organizationId])
   @@index([threadId])
   @@index([type])
 }
 
 model Alert {
-  id          String        @id @default(cuid())
-  threadId    String
-  severity    AlertSeverity
-  title       String
-  description String
-  resolved    Boolean       @default(false)
-  createdAt   DateTime      @default(now())
-  resolvedAt  DateTime?
-  thread      Thread        @relation(fields: [threadId], references: [id])
+  id             String        @id @default(cuid())
+  organizationId String
+  threadId       String
+  severity       AlertSeverity
+  title          String
+  description    String
+  resolved       Boolean       @default(false)
+  createdAt      DateTime      @default(now())
+  resolvedAt     DateTime?
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  thread         Thread        @relation(fields: [threadId], references: [id])
 
+  @@index([organizationId])
   @@index([severity])
   @@index([resolved])
 }
@@ -294,15 +332,60 @@ model AuditLog {
 
 model Subscription {
   id                   String       @id @default(cuid())
-  organizationId       String       @unique
+  workspaceId          String       @unique
+  planId               String
   stripeCustomerId     String?
   stripeSubscriptionId String?
-  planTier             PlanTier
-  status               String // active, trialing, past_due, canceled
+  status               String
   currentPeriodEnd     DateTime?
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
-  organization         Organization @relation(fields: [organizationId], references: [id])
+  workspace            Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  plan                 Plan         @relation(fields: [planId], references: [id])
+
+  @@index([planId])
+}
+
+model Plan {
+  id            String         @id @default(cuid())
+  slug          String         @unique
+  name          String
+  description   String?
+  isActive      Boolean        @default(true)
+  sortOrder     Int            @default(0)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  features      PlanFeature[]
+  prices        PlanPrice[]
+  workspaces    Workspace[]    @relation("WorkspaceCurrentPlan")
+  subscriptions Subscription[]
+}
+
+model PlanFeature {
+  id     String @id @default(cuid())
+  planId String
+  key    String
+  value  String
+  plan   Plan   @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, key])
+  @@index([planId])
+}
+
+model PlanPrice {
+  id            String       @id @default(cuid())
+  planId        String
+  stripePriceId String       @unique
+  interval      PlanInterval
+  currency      String       @default("usd")
+  unitAmount    Int
+  isActive      Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  plan          Plan         @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId])
+  @@index([stripePriceId])
 }
 
 model UsageRecord {

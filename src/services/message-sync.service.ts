@@ -12,7 +12,7 @@ interface IngestArgs {
 export async function ingestMessageFromFolder(args: IngestArgs): Promise<string> {
   const thread = await upsertThreadForMessage(args);
   const isTracked = await computeIsTrackedAtIngestion(args.folder, thread.id);
-  await upsertMessageRow(thread.id, args.message, args.folder.id, isTracked);
+  await upsertMessageRow(thread.id, args.message, args.folder.id, isTracked, args.organizationId);
   await refreshThreadFolderIds(thread.id);
   return thread.id;
 }
@@ -53,17 +53,19 @@ async function upsertMessageRow(
   threadId: string,
   msg: NormalizedMessage,
   folderId: string,
-  isTracked: boolean
+  isTracked: boolean,
+  organizationId: string
 ): Promise<void> {
   await prisma.message.upsert({
     where: { threadId_externalId: { threadId, externalId: msg.messageId } },
     update: {},
-    create: buildMessageCreateData(threadId, msg, folderId, isTracked),
+    create: buildMessageCreateData(threadId, msg, folderId, isTracked, organizationId),
   });
 }
 
-function buildMessageCreateData(threadId: string, msg: NormalizedMessage, folderId: string, isTracked: boolean) {
+function buildMessageCreateData(threadId: string, msg: NormalizedMessage, folderId: string, isTracked: boolean, organizationId: string) {
   return {
+    organizationId,
     threadId,
     externalId: msg.messageId,
     direction: msg.direction,

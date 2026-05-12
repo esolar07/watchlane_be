@@ -11,6 +11,9 @@ import {
   MICROSOFT_SSO_SCOPES,
 } from "../lib/microsoft";
 import { syncMailbox } from "../services/microsoft-mail.service";
+import { assertWithinLimit } from "../services/entitlements.service";
+import { HttpError } from "../lib/errors";
+import { ensureUserHasWorkspace, defaultWorkspaceName } from "../services/workspace.service";
 
 const googleClient = new OAuth2Client(
   config.google.clientId,
@@ -28,12 +31,13 @@ const cookieOptions = {
 async function findOrCreateUser(email: string, name?: string) {
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
-    if (name) {
-      await prisma.user.update({ where: { email }, data: { name } });
-    }
+    if (name) await prisma.user.update({ where: { email }, data: { name } });
+    await ensureUserHasWorkspace(existing.id, defaultWorkspaceName(existing.name ?? name, email));
     return existing;
   }
-  return prisma.user.create({ data: { email, name } });
+  const created = await prisma.user.create({ data: { email, name } });
+  await ensureUserHasWorkspace(created.id, defaultWorkspaceName(name, email));
+  return created;
 }
 
 export async function getAuthUrls(_req: Request, res: Response) {
@@ -159,6 +163,15 @@ async function handleMailboxCallback(req: Request, res: Response, code: string, 
   }
 
   const expiresAt = new Date(Date.now() + tokens.expires_in * 1000);
+  try {
+    await assertMailboxLimitOnCreate(orgId, email);
+  } catch (err) {
+    if (err instanceof HttpError) {
+      res.status(err.statusCode).json(err.body ?? { error: err.message });
+      return;
+    }
+    throw err;
+  }
   const emailAccount = await prisma.emailAccount.upsert({
     where: {
       provider_emailAddress_organizationId: {
@@ -185,6 +198,17 @@ async function handleMailboxCallback(req: Request, res: Response, code: string, 
 
   syncMailbox(emailAccount.id).catch(console.error);
   res.redirect(`${config.frontendUrl}/settings/mailbox?connected=true`);
+}
+
+async function assertMailboxLimitOnCreate(orgId: string, emailAddress: string): Promise<void> {
+  const existing = await prisma.emailAccount.findUnique({
+    where: { provider_emailAddress_organizationId: { provider: "MICROSOFT", emailAddress, organizationId: orgId } },
+    select: { id: true },
+  });
+  if (existing) return;
+  const org = await prisma.organization.findUniqueOrThrow({ where: { id: orgId }, select: { workspaceId: true } });
+  const currentCount = await prisma.emailAccount.count({ where: { organization: { workspaceId: org.workspaceId } } });
+  await assertWithinLimit(org.workspaceId, "mailbox_limit", currentCount);
 }
 
 async function handleInviteCallback(res: Response, code: string, inviteCode: string) {
@@ -328,29 +352,28 @@ export async function devSeed(_req: Request, res: Response) {
     update: {},
     create: { email: "test@watchlane.dev", name: "Test User" },
   });
-
+  const freePlan = await prisma.plan.findUniqueOrThrow({ where: { slug: "free" }, select: { id: true } });
+  const workspace = await prisma.workspace.upsert({
+    where: { id: "test-workspace-id" },
+    update: {},
+    create: { id: "test-workspace-id", name: "Test Workspace", currentPlanId: freePlan.id },
+  });
+  await prisma.workspaceMember.upsert({
+    where: { userId_workspaceId: { userId: user.id, workspaceId: workspace.id } },
+    update: {},
+    create: { userId: user.id, workspaceId: workspace.id, role: "OWNER" },
+  });
   const org = await prisma.organization.upsert({
     where: { id: "test-org-id" },
     update: {},
-    create: { id: "test-org-id", name: "Test Organization" },
+    create: { id: "test-org-id", name: "Test Organization", workspaceId: workspace.id },
   });
-
   await prisma.organizationMember.upsert({
-    where: {
-      userId_organizationId: {
-        userId: user.id,
-        organizationId: org.id,
-      },
-    },
+    where: { userId_organizationId: { userId: user.id, organizationId: org.id } },
     update: {},
-    create: {
-      userId: user.id,
-      organizationId: org.id,
-      role: "OWNER",
-    },
+    create: { userId: user.id, organizationId: org.id, role: "OWNER" },
   });
-
   const token = signToken({ userId: user.id, email: user.email });
   res.cookie("token", token, cookieOptions);
-  res.json({ message: "Seeded test user + org", user: { id: user.id, email: user.email } });
+  res.json({ message: "Seeded test user + workspace + org", user: { id: user.id, email: user.email } });
 }

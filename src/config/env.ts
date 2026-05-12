@@ -21,6 +21,11 @@ if (missing.length > 0) {
   );
 }
 
+function parseAdminEmails(raw: string | undefined): readonly string[] {
+  if (!raw) return [];
+  return raw.split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+}
+
 export const config = {
   port: parseInt(process.env.PORT || "3001", 10),
   databaseUrl: process.env.DATABASE_URL!,
@@ -37,4 +42,5 @@ export const config = {
   },
   encryptionKey: process.env.ENCRYPTION_KEY!,
   frontendUrl: process.env.FRONTEND_URL!,
+  adminEmails: parseAdminEmails(process.env.ADMIN_EMAILS),
 } as const;

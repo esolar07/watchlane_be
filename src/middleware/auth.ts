@@ -34,7 +34,7 @@ export async function attachOrgContext(
 
   const memberships = await prisma.organizationMember.findMany({
     where: { userId: req.user.userId },
-    include: { organization: { select: { name: true } } },
+    include: { organization: { select: { name: true, workspaceId: true } } },
   });
 
   if (memberships.length === 0) {
@@ -48,11 +48,11 @@ export async function attachOrgContext(
       orgId: m.organizationId,
       orgName: m.organization.name,
       role: m.role,
+      workspaceId: m.organization.workspaceId,
     };
     return next();
   }
 
-  // Multiple orgs — require explicit selection
   const selectedOrgId =
     (req.headers["x-org-id"] as string | undefined) ??
     (req.query.orgId as string | undefined);
@@ -83,8 +83,45 @@ export async function attachOrgContext(
     orgId: selected.organizationId,
     orgName: selected.organization.name,
     role: selected.role,
+    workspaceId: selected.organization.workspaceId,
   };
   next();
+}
+
+export async function attachWorkspaceContext(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  if (!req.user) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+  const memberships = await prisma.workspaceMember.findMany({
+    where: { userId: req.user.userId },
+    include: { workspace: { select: { name: true } } },
+  });
+  if (memberships.length === 0) {
+    res.status(403).json({ error: "User is not a member of any workspace" });
+    return;
+  }
+  const selectedId = (req.headers["x-workspace-id"] as string | undefined) ?? (req.query.workspaceId as string | undefined);
+  const picked = pickWorkspaceMembership(memberships, selectedId);
+  if (!picked) {
+    res.status(memberships.length > 1 && !selectedId ? 400 : 403).json({
+      error: memberships.length > 1 && !selectedId ? "Multiple workspaces found. Specify workspaceId." : "User is not a member of the specified workspace",
+      workspaces: memberships.map((m) => ({ id: m.workspaceId, name: m.workspace.name, role: m.role })),
+    });
+    return;
+  }
+  req.workspace = { workspaceId: picked.workspaceId, workspaceName: picked.workspace.name, role: picked.role };
+  next();
+}
+
+function pickWorkspaceMembership<T extends { workspaceId: string }>(memberships: T[], selectedId: string | undefined): T | undefined {
+  if (memberships.length === 1) return memberships[0];
+  if (!selectedId) return undefined;
+  return memberships.find((m) => m.workspaceId === selectedId);
 }
 
 export function requireRole(...roles: OrganizationRole[]) {
@@ -93,12 +130,10 @@ export function requireRole(...roles: OrganizationRole[]) {
       res.status(403).json({ error: "Organization context required" });
       return;
     }
-
     if (!roles.includes(req.org.role)) {
       res.status(403).json({ error: "Insufficient permissions" });
       return;
     }
-
     next();
   };
 }
