@@ -4,7 +4,7 @@ import { getPerformanceReport } from "./dashboard-performance.service";
 const DEFAULT_SLA_MINUTES = 560;
 
 interface OrgDashboardParams {
-  organizationId: string;
+  teamId: string;
   startDate: Date;
   endDate: Date;
   repId?: string;
@@ -53,8 +53,8 @@ interface PerformanceSection {
 }
 
 interface OrgDashboard {
-  organizationId: string;
-  organizationName: string;
+  teamId: string;
+  teamName: string;
   slaTarget: number;
   lastSyncAt: Date | null;
   kpis: KpiSection;
@@ -64,22 +64,22 @@ interface OrgDashboard {
 }
 
 export async function getOrgDashboard(params: OrgDashboardParams): Promise<OrgDashboard> {
-  const org = await prisma.organization.findUniqueOrThrow({
-    where: { id: params.organizationId },
+  const org = await prisma.team.findUniqueOrThrow({
+    where: { id: params.teamId },
     select: { name: true, settings: { select: { slaMinutes: true } } },
   });
   const slaTarget = org.settings?.slaMinutes ?? DEFAULT_SLA_MINUTES;
-  const lastSyncAt = await loadLastSyncAt(params.organizationId, params.repId);
+  const lastSyncAt = await loadLastSyncAt(params.teamId, params.repId);
   const openThreadRows = await loadOpenThreadRows(params, slaTarget);
   const kpis = buildKpis(openThreadRows);
   const activity = await buildActivityFeed(params, openThreadRows);
   const performance = await buildPerformanceSection(params);
-  return { organizationId: params.organizationId, organizationName: org.name, slaTarget, lastSyncAt, kpis, threads: openThreadRows, activity, performance };
+  return { teamId: params.teamId, teamName: org.name, slaTarget, lastSyncAt, kpis, threads: openThreadRows, activity, performance };
 }
 
-async function loadLastSyncAt(organizationId: string, repId?: string): Promise<Date | null> {
+async function loadLastSyncAt(teamId: string, repId?: string): Promise<Date | null> {
   const accounts = await prisma.emailAccount.findMany({
-    where: { organizationId, ...(repId && { userId: repId }) },
+    where: { teamId, ...(repId && { userId: repId }) },
     select: { lastSyncAt: true },
     orderBy: { lastSyncAt: "desc" },
     take: 1,
@@ -90,7 +90,7 @@ async function loadLastSyncAt(organizationId: string, repId?: string): Promise<D
 async function loadOpenThreadRows(params: OrgDashboardParams, slaTarget: number): Promise<ThreadRow[]> {
   const threads = await prisma.thread.findMany({
     where: {
-      organizationId: params.organizationId,
+      teamId: params.teamId,
       coverageStatus: "UNCOVERED",
       lastInboundAt: { not: null },
       dismissedAt: null,
@@ -200,7 +200,7 @@ async function buildRecentCoveredItems(params: OrgDashboardParams): Promise<Acti
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const threads = await prisma.thread.findMany({
     where: {
-      organizationId: params.organizationId,
+      teamId: params.teamId,
       coverageStatus: "COVERED",
       lastOutboundAt: { gte: since },
       dismissedAt: null,
@@ -235,7 +235,7 @@ function makeCoveredItem(
 
 async function buildSyncItems(params: OrgDashboardParams): Promise<ActivityItem[]> {
   const accounts = await prisma.emailAccount.findMany({
-    where: { organizationId: params.organizationId, ...(params.repId && { userId: params.repId }) },
+    where: { teamId: params.teamId, ...(params.repId && { userId: params.repId }) },
     select: { emailAddress: true, lastSyncAt: true, tokenExpiresAt: true },
   });
   const now = Date.now();
@@ -254,7 +254,7 @@ function sortActivity(items: ActivityItem[]): ActivityItem[] {
 }
 
 async function buildPerformanceSection(params: OrgDashboardParams): Promise<PerformanceSection> {
-  const report = await getPerformanceReport({ organizationId: params.organizationId, startDate: params.startDate, endDate: params.endDate, repId: params.repId });
+  const report = await getPerformanceReport({ teamId: params.teamId, startDate: params.startDate, endDate: params.endDate, repId: params.repId });
   return {
     slaCompliancePercent: report.compliancePercent,
     avgResponseMinutes: report.avgResponseMinutes,

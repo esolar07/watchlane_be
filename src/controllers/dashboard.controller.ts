@@ -8,23 +8,23 @@ import { getOrgDashboard } from "../services/dashboard-org.service";
 import { syncUserMailboxes } from "../jobs/sync-mailboxes";
 
 export async function getSummary(req: Request, res: Response) {
-  const orgId = req.org!.orgId;
+  const teamId = req.team!.teamId;
 
   const [coveredCount, uncoveredCount, uncoveredThreads, allThreads] =
     await Promise.all([
       prisma.thread.count({
-        where: { organizationId: orgId, coverageStatus: "COVERED" },
+        where: { teamId: teamId, coverageStatus: "COVERED" },
       }),
       prisma.thread.count({
-        where: { organizationId: orgId, coverageStatus: "UNCOVERED" },
+        where: { teamId: teamId, coverageStatus: "UNCOVERED" },
       }),
       prisma.thread.findMany({
-        where: { organizationId: orgId, coverageStatus: "UNCOVERED" },
+        where: { teamId: teamId, coverageStatus: "UNCOVERED" },
         select: { lastInboundAt: true },
       }),
       prisma.thread.findMany({
         where: {
-          organizationId: orgId,
+          teamId: teamId,
           lastInboundAt: { not: null },
           lastOutboundAt: { not: null },
         },
@@ -68,7 +68,7 @@ export async function getSummary(req: Request, res: Response) {
 }
 
 export async function getCoverageMetrics(req: Request, res: Response) {
-  const { startDate, endDate, repId, orgId } = req.query;
+  const { startDate, endDate, repId, teamId } = req.query;
 
   if (!startDate || !endDate) {
     res.status(400).json({ error: "startDate and endDate are required" });
@@ -83,38 +83,38 @@ export async function getCoverageMetrics(req: Request, res: Response) {
     return;
   }
 
-  const memberships = await prisma.organizationMember.findMany({
+  const memberships = await prisma.teamMember.findMany({
     where: { userId: req.user!.userId },
-    include: { organization: { select: { name: true } } },
+    include: { team: { select: { name: true } } },
   });
 
   if (memberships.length === 0) {
-    res.status(403).json({ error: "User is not a member of any organization" });
+    res.status(403).json({ error: "User is not a member of any team" });
     return;
   }
 
-  const selectedOrgId = orgId as string | undefined;
+  const selectedTeamId = teamId as string | undefined;
 
-  if (selectedOrgId) {
+  if (selectedTeamId) {
     const isMember = memberships.some(
-      (m) => m.organizationId === selectedOrgId
+      (m) => m.teamId === selectedTeamId
     );
     if (!isMember) {
-      res.status(403).json({ error: "User is not a member of the specified organization" });
+      res.status(403).json({ error: "User is not a member of the specified team" });
       return;
     }
 
-    const org = memberships.find((m) => m.organizationId === selectedOrgId)!;
+    const org = memberships.find((m) => m.teamId === selectedTeamId)!;
     const metrics = await getDashboardMetrics({
-      organizationId: selectedOrgId,
+      teamId: selectedTeamId,
       startDate: start,
       endDate: end,
       repId: repId as string | undefined,
     });
 
     res.json({
-      organizationId: org.organizationId,
-      organizationName: org.organization.name,
+      teamId: org.teamId,
+      teamName: org.team.name,
       ...metrics,
     });
     return;
@@ -123,14 +123,14 @@ export async function getCoverageMetrics(req: Request, res: Response) {
   const results = await Promise.all(
     memberships.map(async (m) => {
       const metrics = await getDashboardMetrics({
-        organizationId: m.organizationId,
+        teamId: m.teamId,
         startDate: start,
         endDate: end,
         repId: repId as string | undefined,
       });
       return {
-        organizationId: m.organizationId,
-        organizationName: m.organization.name,
+        teamId: m.teamId,
+        teamName: m.team.name,
         ...metrics,
       };
     })
@@ -152,7 +152,7 @@ export async function getOperational(req: Request, res: Response) {
   const orgError = await ensureOrgMembership(req, res);
   if (orgError) return;
   const repId = req.query.repId as string | undefined;
-  const snapshot = await getOperationalSnapshot({ organizationId: req.org!.orgId, repId });
+  const snapshot = await getOperationalSnapshot({ teamId: req.team!.teamId, repId });
   res.json(snapshot);
 }
 
@@ -166,21 +166,21 @@ export async function getAggregate(req: Request, res: Response) {
     res.status(400).json({ error: range.error });
     return;
   }
-  const orgIds = await loadUserOrgIds(req.user.userId);
-  if (orgIds.length === 0) {
-    res.status(403).json({ error: "User is not a member of any organization" });
+  const teamIds = await loadUserTeamIds(req.user.userId);
+  if (teamIds.length === 0) {
+    res.status(403).json({ error: "User is not a member of any team" });
     return;
   }
-  const result = await getAggregateDashboard({ organizationIds: orgIds, startDate: range.start!, endDate: range.end! });
+  const result = await getAggregateDashboard({ teamIds: teamIds, startDate: range.start!, endDate: range.end! });
   res.json(result);
 }
 
-async function loadUserOrgIds(userId: string): Promise<string[]> {
-  const memberships = await prisma.organizationMember.findMany({
+async function loadUserTeamIds(userId: string): Promise<string[]> {
+  const memberships = await prisma.teamMember.findMany({
     where: { userId },
-    select: { organizationId: true },
+    select: { teamId: true },
   });
-  return memberships.map((m) => m.organizationId);
+  return memberships.map((m) => m.teamId);
 }
 
 export async function getOrgDashboardEndpoint(req: Request, res: Response) {
@@ -192,7 +192,7 @@ export async function getOrgDashboardEndpoint(req: Request, res: Response) {
     return;
   }
   const repId = req.query.repId as string | undefined;
-  const dashboard = await getOrgDashboard({ organizationId: req.org!.orgId, startDate: range.start!, endDate: range.end!, repId });
+  const dashboard = await getOrgDashboard({ teamId: req.team!.teamId, startDate: range.start!, endDate: range.end!, repId });
   res.json(dashboard);
 }
 
@@ -205,13 +205,13 @@ export async function getPerformance(req: Request, res: Response) {
     return;
   }
   const repId = req.query.repId as string | undefined;
-  const report = await getPerformanceReport({ organizationId: req.org!.orgId, startDate: range.start!, endDate: range.end!, repId });
+  const report = await getPerformanceReport({ teamId: req.team!.teamId, startDate: range.start!, endDate: range.end!, repId });
   res.json(report);
 }
 
 async function ensureOrgMembership(req: Request, res: Response): Promise<boolean> {
-  if (!req.org) {
-    res.status(403).json({ error: "Organization context required" });
+  if (!req.team) {
+    res.status(403).json({ error: "Team context required" });
     return true;
   }
   return false;

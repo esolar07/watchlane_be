@@ -14,12 +14,12 @@ interface CreateRuleBody {
 }
 
 export async function listRules(req: Request, res: Response) {
-  if (!req.org) {
-    res.status(403).json({ error: "Organization context required" });
+  if (!req.team) {
+    res.status(403).json({ error: "Team context required" });
     return;
   }
   const rules = await prisma.monitoringRule.findMany({
-    where: { organizationId: req.org.orgId },
+    where: { teamId: req.team.teamId },
     include: {
       emailAccount: { select: { id: true, emailAddress: true } },
       folder: { select: { id: true, name: true, path: true } },
@@ -30,8 +30,8 @@ export async function listRules(req: Request, res: Response) {
 }
 
 export async function createRule(req: Request, res: Response) {
-  if (!req.org) {
-    res.status(403).json({ error: "Organization context required" });
+  if (!req.team) {
+    res.status(403).json({ error: "Team context required" });
     return;
   }
   const parsed = parseCreateRuleBody(req.body);
@@ -39,12 +39,12 @@ export async function createRule(req: Request, res: Response) {
     res.status(400).json({ error: parsed.error });
     return;
   }
-  const scopeError = await validateRuleScope(parsed.body!, req.org.orgId);
+  const scopeError = await validateRuleScope(parsed.body!, req.team.teamId);
   if (scopeError) {
     res.status(400).json({ error: scopeError });
     return;
   }
-  const rule = await prisma.monitoringRule.create({ data: buildRuleCreateData(parsed.body!, req.org.orgId) });
+  const rule = await prisma.monitoringRule.create({ data: buildRuleCreateData(parsed.body!, req.team.teamId) });
   res.status(201).json({ rule });
 }
 
@@ -57,37 +57,37 @@ function parseCreateRuleBody(raw: unknown): { body?: CreateRuleBody; error?: str
   return { body: body as CreateRuleBody };
 }
 
-async function validateRuleScope(body: CreateRuleBody, orgId: string): Promise<string | null> {
-  if (body.scopeKind === "ORGANIZATION") return validateOrganizationScope(body);
-  if (body.scopeKind === "ACCOUNT") return validateAccountScope(body, orgId);
-  return validateFolderScope(body, orgId);
+async function validateRuleScope(body: CreateRuleBody, teamId: string): Promise<string | null> {
+  if (body.scopeKind === "TEAM") return validateTeamScope(body);
+  if (body.scopeKind === "ACCOUNT") return validateAccountScope(body, teamId);
+  return validateFolderScope(body, teamId);
 }
 
-function validateOrganizationScope(body: CreateRuleBody): string | null {
+function validateTeamScope(body: CreateRuleBody): string | null {
   if (body.emailAccountId || body.folderId) return "ORGANIZATION scope must not include emailAccountId or folderId";
   return null;
 }
 
-async function validateAccountScope(body: CreateRuleBody, orgId: string): Promise<string | null> {
+async function validateAccountScope(body: CreateRuleBody, teamId: string): Promise<string | null> {
   if (!body.emailAccountId) return "ACCOUNT scope requires emailAccountId";
   if (body.folderId) return "ACCOUNT scope must not include folderId";
   const account = await prisma.emailAccount.findUnique({ where: { id: body.emailAccountId } });
-  if (!account || account.organizationId !== orgId) return "emailAccount not found in this organization";
+  if (!account || account.teamId !== teamId) return "emailAccount not found in this team";
   return null;
 }
 
-async function validateFolderScope(body: CreateRuleBody, orgId: string): Promise<string | null> {
+async function validateFolderScope(body: CreateRuleBody, teamId: string): Promise<string | null> {
   if (!body.emailAccountId || !body.folderId) return "FOLDER scope requires emailAccountId and folderId";
   const folder = await prisma.emailFolder.findUnique({ where: { id: body.folderId } });
   if (!folder || folder.emailAccountId !== body.emailAccountId) return "folder does not belong to the given emailAccount";
   const account = await prisma.emailAccount.findUniqueOrThrow({ where: { id: body.emailAccountId } });
-  if (account.organizationId !== orgId) return "emailAccount not found in this organization";
+  if (account.teamId !== teamId) return "emailAccount not found in this team";
   return null;
 }
 
-function buildRuleCreateData(body: CreateRuleBody, organizationId: string) {
+function buildRuleCreateData(body: CreateRuleBody, teamId: string) {
   return {
-    organizationId,
+    teamId,
     name: body.name,
     evaluationType: body.evaluationType,
     threshold: body.threshold ?? null,

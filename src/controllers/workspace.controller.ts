@@ -2,15 +2,16 @@ import type { Request, Response } from "express";
 import { prisma } from "../lib/prisma";
 import { NotAuthorizedError, ValidationError } from "../lib/errors";
 import { createOwnedWorkspace } from "../services/workspace.service";
-import { invalidate } from "../services/entitlements.service";
+import { assertWithinLimitForUser, invalidate } from "../services/entitlements.service";
+import type { WorkspaceAccessRole } from "../types/auth";
 import type { WorkspaceRole } from "../generated/prisma/client";
 
 const WORKSPACE_SUMMARY_SELECT = {
   id: true,
   name: true,
+  ownerUserId: true,
   createdAt: true,
   updatedAt: true,
-  currentPlan: { select: { slug: true, name: true } },
 } as const;
 
 interface CreateWorkspaceBody { name?: string }
@@ -18,18 +19,33 @@ interface UpdateWorkspaceBody { name?: string }
 interface AddMemberBody { userId: string; role?: WorkspaceRole }
 interface UpdateMemberBody { role: WorkspaceRole }
 
-function assertOwnerOrAdmin(role: WorkspaceRole, message: string): void {
+function assertOwnerOrAdmin(role: WorkspaceAccessRole, message: string): void {
   if (role !== "OWNER" && role !== "ADMIN") throw new NotAuthorizedError(message);
 }
 
-export async function listMyWorkspaces(req: Request, res: Response) {
-  const userId = req.user!.userId;
-  const memberships = await prisma.workspaceMember.findMany({
-    where: { userId },
-    include: { workspace: { select: WORKSPACE_SUMMARY_SELECT } },
+async function enforceWorkspaceLimit(userId: string): Promise<void> {
+  const current = await prisma.workspace.count({ where: { ownerUserId: userId } });
+  await assertWithinLimitForUser(userId, "workspace_limit", current);
+}
+
+async function loadAccessibleWorkspaces(userId: string) {
+  const rows = await prisma.workspace.findMany({
+    where: { OR: [{ ownerUserId: userId }, { members: { some: { userId } } }] },
+    select: { ...WORKSPACE_SUMMARY_SELECT, members: { where: { userId }, select: { role: true } } },
     orderBy: { createdAt: "asc" },
   });
-  res.json({ workspaces: memberships.map((m) => ({ ...m.workspace, role: m.role })) });
+  return rows.map((r) => attachAccessRole(r, userId));
+}
+
+function attachAccessRole<T extends { ownerUserId: string; members: { role: WorkspaceRole }[] }>(row: T, userId: string) {
+  const role: WorkspaceAccessRole = row.ownerUserId === userId ? "OWNER" : row.members[0].role;
+  const { members: _members, ...rest } = row;
+  return { ...rest, role };
+}
+
+export async function listMyWorkspaces(req: Request, res: Response) {
+  const workspaces = await loadAccessibleWorkspaces(req.user!.userId);
+  res.json({ workspaces });
 }
 
 export async function getWorkspace(req: Request, res: Response) {
@@ -45,6 +61,7 @@ export async function createWorkspace(req: Request<{}, {}, CreateWorkspaceBody>,
   const userId = req.user!.userId;
   const name = req.body?.name?.trim();
   if (!name) throw new ValidationError("Workspace name is required");
+  await enforceWorkspaceLimit(userId);
   const workspaceId = await createOwnedWorkspace(userId, name);
   const workspace = await prisma.workspace.findUniqueOrThrow({ where: { id: workspaceId }, select: WORKSPACE_SUMMARY_SELECT });
   res.status(201).json({ ...workspace, role: "OWNER" });

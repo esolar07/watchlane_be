@@ -1,6 +1,5 @@
 import { prisma } from "../lib/prisma";
 import { PLAN_FEATURES, PlanFeatureKey } from "../config/plan-features";
-import type { PlanInterval } from "../generated/prisma/client";
 
 type PlanFeatureValues = Partial<{ [K in PlanFeatureKey]: string }>;
 
@@ -12,42 +11,34 @@ interface PlanSeed {
   features: PlanFeatureValues;
 }
 
-interface PriceSeed {
-  planSlug: string;
-  stripePriceId: string;
-  interval: PlanInterval;
-  unitAmount: number;
-  currency?: string;
-}
-
 const PLAN_SEEDS: PlanSeed[] = [
   {
     slug: "free",
     name: "Free",
-    description: "1 connected mailbox, up to 3 organizations, 7-day history.",
+    description: "Up to 3 workspaces, 1 team and 1 mailbox per workspace, 7-day history.",
     sortOrder: 0,
-    features: { mailbox_limit: "1", org_limit: "3", history_days: "7", weekly_reports: "false", folder_monitoring: "false", priority_support: "false" },
+    features: { workspace_limit: "3", mailbox_limit: "1", team_limit: "1", history_days: "7", weekly_reports: "false", folder_monitoring: "false", priority_support: "false" },
   },
   {
     slug: "pro",
     name: "Pro",
-    description: "Up to 5 mailboxes across unlimited orgs, 90-day history, weekly reports, folder monitoring.",
+    description: "Unlimited workspaces, 5 mailboxes per workspace, 90-day history, weekly reports, folder monitoring.",
     sortOrder: 1,
-    features: { mailbox_limit: "5", org_limit: "unlimited", history_days: "90", weekly_reports: "true", folder_monitoring: "true", priority_support: "false" },
+    features: { workspace_limit: "unlimited", mailbox_limit: "5", team_limit: "unlimited", history_days: "90", weekly_reports: "true", folder_monitoring: "true", priority_support: "false" },
   },
   {
     slug: "pro_plus",
     name: "Pro+",
-    description: "Unlimited mailboxes and orgs, unlimited history, priority support.",
+    description: "Unlimited everything, unlimited history, priority support.",
     sortOrder: 2,
-    features: { mailbox_limit: "unlimited", org_limit: "unlimited", history_days: "unlimited", weekly_reports: "true", folder_monitoring: "true", priority_support: "true" },
+    features: { workspace_limit: "unlimited", mailbox_limit: "unlimited", team_limit: "unlimited", history_days: "unlimited", weekly_reports: "true", folder_monitoring: "true", priority_support: "true" },
   },
   {
     slug: "enterprise",
     name: "Enterprise",
     description: "Everything in Pro+ with custom contract.",
     sortOrder: 3,
-    features: { mailbox_limit: "unlimited", org_limit: "unlimited", history_days: "unlimited", weekly_reports: "true", folder_monitoring: "true", priority_support: "true" },
+    features: { workspace_limit: "unlimited", mailbox_limit: "unlimited", team_limit: "unlimited", history_days: "unlimited", weekly_reports: "true", folder_monitoring: "true", priority_support: "true" },
   },
 ];
 
@@ -76,18 +67,8 @@ async function seedPlanWithFeatures(seed: PlanSeed): Promise<void> {
   }
 }
 
-async function upsertPrice(seed: PriceSeed): Promise<void> {
-  const plan = await prisma.plan.findUniqueOrThrow({ where: { slug: seed.planSlug } });
-  await prisma.planPrice.upsert({
-    where: { stripePriceId: seed.stripePriceId },
-    create: { planId: plan.id, stripePriceId: seed.stripePriceId, interval: seed.interval, unitAmount: seed.unitAmount, currency: seed.currency ?? "usd" },
-    update: { planId: plan.id, interval: seed.interval, unitAmount: seed.unitAmount, currency: seed.currency ?? "usd" },
-  });
-}
-
-export async function seedPlans(prices: PriceSeed[] = []): Promise<void> {
+export async function seedPlans(): Promise<void> {
   for (const seed of PLAN_SEEDS) await seedPlanWithFeatures(seed);
-  for (const price of prices) await upsertPrice(price);
 }
 
 if (require.main === module) {

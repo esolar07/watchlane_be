@@ -82,7 +82,7 @@ async function collectFoldersToSync(emailAccountId: string): Promise<EmailFolder
 }
 
 async function syncMessagesFromFolder(
-  account: { id: string; organizationId: string },
+  account: { id: string; teamId: string },
   folder: EmailFolder,
   accessToken: string,
   since: Date
@@ -93,7 +93,7 @@ async function syncMessagesFromFolder(
   for (const message of sorted) {
     const threadId = await ingestMessageFromFolder({
       emailAccountId: account.id,
-      organizationId: account.organizationId,
+      teamId: account.teamId,
       folder,
       message,
     });

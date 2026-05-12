@@ -43,13 +43,13 @@ interface OperationalSnapshot {
 }
 
 interface OperationalParams {
-  organizationId: string;
+  teamId: string;
   repId?: string;
 }
 
 export async function getOperationalSnapshot(params: OperationalParams): Promise<OperationalSnapshot> {
-  const slaTarget = await loadSlaTarget(params.organizationId);
-  const lastSyncAt = await loadLastSyncAt(params.organizationId, params.repId);
+  const slaTarget = await loadSlaTarget(params.teamId);
+  const lastSyncAt = await loadLastSyncAt(params.teamId, params.repId);
   const openThreads = await loadOpenThreads(params, slaTarget);
   const partitioned = partitionByUrgency(openThreads);
   const oldestUncoveredMinutes = computeOldestUncoveredMinutes(openThreads);
@@ -77,14 +77,14 @@ function assembleSnapshot(
   };
 }
 
-async function loadSlaTarget(organizationId: string): Promise<number> {
-  const settings = await prisma.organizationSettings.findUnique({ where: { organizationId } });
+async function loadSlaTarget(teamId: string): Promise<number> {
+  const settings = await prisma.teamSettings.findUnique({ where: { teamId } });
   return settings?.slaMinutes ?? DEFAULT_SLA_MINUTES;
 }
 
-async function loadLastSyncAt(organizationId: string, repId?: string): Promise<Date | null> {
+async function loadLastSyncAt(teamId: string, repId?: string): Promise<Date | null> {
   const accounts = await prisma.emailAccount.findMany({
-    where: { organizationId, ...(repId && { userId: repId }) },
+    where: { teamId, ...(repId && { userId: repId }) },
     select: { lastSyncAt: true },
     orderBy: { lastSyncAt: "desc" },
     take: 1,
@@ -96,7 +96,7 @@ async function loadOpenThreads(params: OperationalParams, slaTarget: number): Pr
   const slaMs = slaTarget * 60_000;
   const threads = await prisma.thread.findMany({
     where: {
-      organizationId: params.organizationId,
+      teamId: params.teamId,
       coverageStatus: "UNCOVERED",
       lastInboundAt: { not: null },
       dismissedAt: null,
@@ -173,7 +173,7 @@ async function buildRecentCoveredActivity(params: OperationalParams): Promise<Op
   const since = new Date(Date.now() - RECENT_ACTIVITY_HOURS * 60 * 60 * 1000);
   const threads = await prisma.thread.findMany({
     where: {
-      organizationId: params.organizationId,
+      teamId: params.teamId,
       coverageStatus: "COVERED",
       lastOutboundAt: { gte: since },
       dismissedAt: null,
@@ -218,7 +218,7 @@ async function buildRecentDismissedActivity(params: OperationalParams): Promise<
   const since = new Date(Date.now() - RECENT_ACTIVITY_HOURS * 60 * 60 * 1000);
   const threads = await prisma.thread.findMany({
     where: {
-      organizationId: params.organizationId,
+      teamId: params.teamId,
       dismissedAt: { gte: since },
       ...(params.repId && { emailAccount: { userId: params.repId } }),
     },
@@ -281,7 +281,7 @@ function makeAtRiskItem(thread: OpenThread, slaTarget: number): OperationalActiv
 
 async function buildSyncActivity(params: OperationalParams): Promise<OperationalActivityItem[]> {
   const accounts = await prisma.emailAccount.findMany({
-    where: { organizationId: params.organizationId, ...(params.repId && { userId: params.repId }) },
+    where: { teamId: params.teamId, ...(params.repId && { userId: params.repId }) },
     select: { emailAddress: true, lastSyncAt: true, tokenExpiresAt: true },
   });
   const now = Date.now();

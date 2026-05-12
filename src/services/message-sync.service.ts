@@ -4,7 +4,7 @@ import type { NormalizedMessage } from "../types/microsoft";
 
 interface IngestArgs {
   emailAccountId: string;
-  organizationId: string;
+  teamId: string;
   folder: EmailFolder;
   message: NormalizedMessage;
 }
@@ -12,7 +12,7 @@ interface IngestArgs {
 export async function ingestMessageFromFolder(args: IngestArgs): Promise<string> {
   const thread = await upsertThreadForMessage(args);
   const isTracked = await computeIsTrackedAtIngestion(args.folder, thread.id);
-  await upsertMessageRow(thread.id, args.message, args.folder.id, isTracked, args.organizationId);
+  await upsertMessageRow(thread.id, args.message, args.folder.id, isTracked, args.teamId);
   await refreshThreadFolderIds(thread.id);
   return thread.id;
 }
@@ -27,7 +27,7 @@ async function upsertThreadForMessage(args: IngestArgs) {
 
 function buildThreadCreateData(args: IngestArgs) {
   return {
-    organizationId: args.organizationId,
+    teamId: args.teamId,
     emailAccountId: args.emailAccountId,
     externalThreadId: args.message.conversationId,
     subject: args.message.subject,
@@ -54,18 +54,18 @@ async function upsertMessageRow(
   msg: NormalizedMessage,
   folderId: string,
   isTracked: boolean,
-  organizationId: string
+  teamId: string
 ): Promise<void> {
   await prisma.message.upsert({
     where: { threadId_externalId: { threadId, externalId: msg.messageId } },
     update: {},
-    create: buildMessageCreateData(threadId, msg, folderId, isTracked, organizationId),
+    create: buildMessageCreateData(threadId, msg, folderId, isTracked, teamId),
   });
 }
 
-function buildMessageCreateData(threadId: string, msg: NormalizedMessage, folderId: string, isTracked: boolean, organizationId: string) {
+function buildMessageCreateData(threadId: string, msg: NormalizedMessage, folderId: string, isTracked: boolean, teamId: string) {
   return {
-    organizationId,
+    teamId,
     threadId,
     externalId: msg.messageId,
     direction: msg.direction,

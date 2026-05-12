@@ -1,7 +1,7 @@
 import { prisma } from "../lib/prisma";
 
 interface DashboardMetricsParams {
-  organizationId: string;
+  teamId: string;
   repId?: string;
   startDate: Date;
   endDate: Date;
@@ -49,13 +49,13 @@ interface DashboardMetrics {
 }
 
 export async function getDashboardMetrics({
-  organizationId,
+  teamId,
   repId,
   startDate,
   endDate,
 }: DashboardMetricsParams): Promise<DashboardMetrics> {
-  const settings = await prisma.organizationSettings.findUnique({
-    where: { organizationId },
+  const settings = await prisma.teamSettings.findUnique({
+    where: { teamId },
   });
 
   const slaTarget = settings?.slaMinutes ?? 560;
@@ -64,7 +64,7 @@ export async function getDashboardMetrics({
   const [threads, emailAccounts] = await Promise.all([
     prisma.thread.findMany({
       where: {
-        organizationId,
+        teamId,
         firstInboundAt: { gte: startDate, lte: endDate },
         dismissedAt: null,
         ...(repId && {
@@ -90,7 +90,7 @@ export async function getDashboardMetrics({
     }),
     prisma.emailAccount.findMany({
       where: {
-        organizationId,
+        teamId,
         ...(repId && { userId: repId }),
       },
       select: {
@@ -223,7 +223,7 @@ export async function getDashboardMetrics({
     responseTimeCount > 0
       ? Math.round(responseTimeSum / responseTimeCount / 60_000)
       : 0;
-  const openThreads = await loadOpenThreads(organizationId, slaTarget, repId);
+  const openThreads = await loadOpenThreads(teamId, slaTarget, repId);
   const overdueCount = openThreads.filter((t) => t.isPastSla).length;
   const oldestUncoveredMinutes = openThreads.length > 0 ? Math.max(...openThreads.map((t) => t.minutesWaiting)) : 0;
 
@@ -243,11 +243,11 @@ export async function getDashboardMetrics({
   };
 }
 
-async function loadOpenThreads(organizationId: string, slaMin: number, repId?: string): Promise<OpenThread[]> {
+async function loadOpenThreads(teamId: string, slaMin: number, repId?: string): Promise<OpenThread[]> {
   const slaMs = slaMin * 60_000;
   const threads = await prisma.thread.findMany({
     where: {
-      organizationId,
+      teamId,
       coverageStatus: "UNCOVERED",
       lastInboundAt: { not: null },
       dismissedAt: null,

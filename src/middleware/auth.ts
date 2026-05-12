@@ -1,7 +1,8 @@
 import type { Request, Response, NextFunction } from "express";
-import type { OrganizationRole } from "../generated/prisma/client";
+import type { TeamRole } from "../generated/prisma/client";
 import { verifyToken } from "../lib/jwt";
 import { prisma } from "../lib/prisma";
+import type { WorkspaceAccessRole, WorkspaceContext } from "../types/auth";
 
 export async function authenticate(
   req: Request,
@@ -22,7 +23,7 @@ export async function authenticate(
   }
 }
 
-export async function attachOrgContext(
+export async function attachTeamContext(
   req: Request,
   res: Response,
   next: NextFunction
@@ -32,37 +33,37 @@ export async function attachOrgContext(
     return;
   }
 
-  const memberships = await prisma.organizationMember.findMany({
+  const memberships = await prisma.teamMember.findMany({
     where: { userId: req.user.userId },
-    include: { organization: { select: { name: true, workspaceId: true } } },
+    include: { team: { select: { name: true, workspaceId: true } } },
   });
 
   if (memberships.length === 0) {
-    res.status(403).json({ error: "User is not a member of any organization" });
+    res.status(403).json({ error: "User is not a member of any team" });
     return;
   }
 
   if (memberships.length === 1) {
     const m = memberships[0];
-    req.org = {
-      orgId: m.organizationId,
-      orgName: m.organization.name,
+    req.team = {
+      teamId: m.teamId,
+      teamName: m.team.name,
       role: m.role,
-      workspaceId: m.organization.workspaceId,
+      workspaceId: m.team.workspaceId,
     };
     return next();
   }
 
-  const selectedOrgId =
-    (req.headers["x-org-id"] as string | undefined) ??
-    (req.query.orgId as string | undefined);
+  const selectedTeamId =
+    (req.headers["x-team-id"] as string | undefined) ??
+    (req.query.teamId as string | undefined);
 
-  if (!selectedOrgId) {
+  if (!selectedTeamId) {
     res.status(400).json({
-      error: "Multiple organizations found. Specify orgId.",
-      organizations: memberships.map((m) => ({
-        id: m.organizationId,
-        name: m.organization.name,
+      error: "Multiple teams found. Specify teamId.",
+      teams: memberships.map((m) => ({
+        id: m.teamId,
+        name: m.team.name,
         role: m.role,
       })),
     });
@@ -70,70 +71,85 @@ export async function attachOrgContext(
   }
 
   const selected = memberships.find(
-    (m) => m.organizationId === selectedOrgId
+    (m) => m.teamId === selectedTeamId
   );
   if (!selected) {
     res
       .status(403)
-      .json({ error: "User is not a member of the specified organization" });
+      .json({ error: "User is not a member of the specified team" });
     return;
   }
 
-  req.org = {
-    orgId: selected.organizationId,
-    orgName: selected.organization.name,
+  req.team = {
+    teamId: selected.teamId,
+    teamName: selected.team.name,
     role: selected.role,
-    workspaceId: selected.organization.workspaceId,
+    workspaceId: selected.team.workspaceId,
   };
   next();
 }
 
-export async function attachWorkspaceContext(
-  req: Request,
-  res: Response,
-  next: NextFunction
-) {
-  if (!req.user) {
-    res.status(401).json({ error: "Authentication required" });
-    return;
-  }
-  const memberships = await prisma.workspaceMember.findMany({
-    where: { userId: req.user.userId },
-    include: { workspace: { select: { name: true } } },
-  });
-  if (memberships.length === 0) {
-    res.status(403).json({ error: "User is not a member of any workspace" });
-    return;
-  }
-  const selectedId = (req.headers["x-workspace-id"] as string | undefined) ?? (req.query.workspaceId as string | undefined);
-  const picked = pickWorkspaceMembership(memberships, selectedId);
-  if (!picked) {
-    res.status(memberships.length > 1 && !selectedId ? 400 : 403).json({
-      error: memberships.length > 1 && !selectedId ? "Multiple workspaces found. Specify workspaceId." : "User is not a member of the specified workspace",
-      workspaces: memberships.map((m) => ({ id: m.workspaceId, name: m.workspace.name, role: m.role })),
-    });
-    return;
-  }
-  req.workspace = { workspaceId: picked.workspaceId, workspaceName: picked.workspace.name, role: picked.role };
+export async function attachWorkspaceContext(req: Request, res: Response, next: NextFunction) {
+  if (!req.user) { res.status(401).json({ error: "Authentication required" }); return; }
+  const accessible = await loadAccessibleWorkspaces(req.user.userId);
+  const selectedId = readSelectedWorkspaceId(req);
+  const picked = pickAccessibleWorkspace(accessible, selectedId);
+  if (!picked) { respondWorkspacePickFailure(res, accessible, selectedId); return; }
+  req.workspace = picked;
   next();
 }
 
-function pickWorkspaceMembership<T extends { workspaceId: string }>(memberships: T[], selectedId: string | undefined): T | undefined {
-  if (memberships.length === 1) return memberships[0];
-  if (!selectedId) return undefined;
-  return memberships.find((m) => m.workspaceId === selectedId);
+async function loadAccessibleWorkspaces(userId: string): Promise<WorkspaceContext[]> {
+  const rows = await prisma.workspace.findMany({
+    where: { OR: [{ ownerUserId: userId }, { members: { some: { userId } } }] },
+    select: { id: true, name: true, ownerUserId: true, members: { where: { userId }, select: { role: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+  return rows.map((w) => toWorkspaceContext(w, userId));
 }
 
-export function requireRole(...roles: OrganizationRole[]) {
+function toWorkspaceContext(row: { id: string; name: string; ownerUserId: string; members: { role: WorkspaceAccessRole }[] }, userId: string): WorkspaceContext {
+  const role: WorkspaceAccessRole = row.ownerUserId === userId ? "OWNER" : row.members[0].role;
+  return { workspaceId: row.id, workspaceName: row.name, role };
+}
+
+function readSelectedWorkspaceId(req: Request): string | undefined {
+  return (req.headers["x-workspace-id"] as string | undefined) ?? (req.query.workspaceId as string | undefined);
+}
+
+function pickAccessibleWorkspace(workspaces: WorkspaceContext[], selectedId: string | undefined): WorkspaceContext | undefined {
+  if (workspaces.length === 1 && !selectedId) return workspaces[0];
+  if (!selectedId) return undefined;
+  return workspaces.find((w) => w.workspaceId === selectedId);
+}
+
+function respondWorkspacePickFailure(res: Response, accessible: WorkspaceContext[], selectedId: string | undefined): void {
+  const ambiguous = accessible.length > 1 && !selectedId;
+  const status = accessible.length === 0 ? 403 : ambiguous ? 400 : 403;
+  const error = accessible.length === 0
+    ? "User has no accessible workspaces"
+    : ambiguous ? "Multiple workspaces found. Specify workspaceId."
+    : "User does not have access to the specified workspace";
+  res.status(status).json({ error, workspaces: accessible });
+}
+
+export function requireRole(...roles: TeamRole[]) {
   return (req: Request, res: Response, next: NextFunction) => {
-    if (!req.org) {
-      res.status(403).json({ error: "Organization context required" });
+    if (!req.team) {
+      res.status(403).json({ error: "Team context required" });
       return;
     }
-    if (!roles.includes(req.org.role)) {
+    if (!roles.includes(req.team.role)) {
       res.status(403).json({ error: "Insufficient permissions" });
       return;
     }
     next();
   };
+}
+
+export async function requireOnboardingComplete(req: Request, res: Response, next: NextFunction) {
+  if (!req.user) { res.status(401).json({ error: "Authentication required" }); return; }
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user.userId }, select: { onboardingCompletedAt: true } });
+  if (!user.onboardingCompletedAt) { res.status(403).json({ error: "Onboarding required", code: "ONBOARDING_REQUIRED" }); return; }
+  next();
 }

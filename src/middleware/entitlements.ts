@@ -6,7 +6,7 @@ import { NotAuthorizedError } from "../lib/errors";
 
 export function requireFeature(key: PlanFeatureKey) {
   return async (req: Request, _res: Response, next: NextFunction) => {
-    const workspaceId = req.workspace?.workspaceId ?? req.org?.workspaceId;
+    const workspaceId = req.workspace?.workspaceId ?? req.team?.workspaceId;
     if (!workspaceId) return next(new NotAuthorizedError("Workspace context required"));
     try { await assertFeature(workspaceId, key); next(); } catch (err) { next(err); }
   };

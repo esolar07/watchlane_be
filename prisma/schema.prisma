@@ -17,14 +17,13 @@ datasource db {
 // ENUMS
 //////////////////////////////////////////////////////
 
-enum OrganizationRole {
+enum TeamRole {
   OWNER
   ADMIN
   MEMBER
 }
 
 enum WorkspaceRole {
-  OWNER
   ADMIN
   MEMBER
 }
@@ -65,11 +64,6 @@ enum CoverageStatus {
   UNCOVERED
 }
 
-enum PlanInterval {
-  MONTH
-  YEAR
-}
-
 enum SystemFolderKind {
   INBOX
   SENT_ITEMS
@@ -79,7 +73,7 @@ enum SystemFolderKind {
 }
 
 enum RuleScopeKind {
-  ORGANIZATION
+  TEAM
   ACCOUNT
   FOLDER
 }
@@ -88,28 +82,33 @@ enum RuleScopeKind {
 // MODELS
 //////////////////////////////////////////////////////
 model User {
-  id                 String               @id @default(uuid())
-  OrganizationMember OrganizationMember[]
-  WorkspaceMember    WorkspaceMember[]
-  email              String               @unique
-  name               String?
-  emailAccounts      EmailAccount[]
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
+  id                    String            @id @default(uuid())
+  email                 String            @unique
+  name                  String?
+  currentPlanId         String
+  onboardingCompletedAt DateTime?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  currentPlan           Plan              @relation("UserCurrentPlan", fields: [currentPlanId], references: [id])
+  ownedWorkspaces       Workspace[]       @relation("WorkspaceOwner")
+  teamMemberships       TeamMember[]
+  workspaceMemberships  WorkspaceMember[]
+  emailAccounts         EmailAccount[]
+
+  @@index([currentPlanId])
 }
 
 model Workspace {
-  id            String            @id @default(cuid())
-  name          String
-  currentPlanId String
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
-  members       WorkspaceMember[]
-  organizations Organization[]
-  subscription  Subscription?
-  currentPlan   Plan              @relation("WorkspaceCurrentPlan", fields: [currentPlanId], references: [id])
+  id          String            @id @default(cuid())
+  name        String
+  ownerUserId String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  owner       User              @relation("WorkspaceOwner", fields: [ownerUserId], references: [id])
+  members     WorkspaceMember[]
+  teams       Team[]
 
-  @@index([currentPlanId])
+  @@index([ownerUserId])
 }
 
 model WorkspaceMember {
@@ -125,42 +124,42 @@ model WorkspaceMember {
   @@index([workspaceId])
 }
 
-model Organization {
-  id                 String                @id @default(cuid())
-  workspaceId        String
-  OrganizationMember OrganizationMember[]
-  name               String
-  inviteCode         String                @unique @default(uuid())
-  createdAt          DateTime              @default(now())
-  updatedAt          DateTime              @updatedAt
-  rules              MonitoringRule[]
-  threads            Thread[]
-  emailAccounts      EmailAccount[]
-  folders            EmailFolder[]
-  messages           Message[]
-  evaluations        Evaluation[]
-  alerts             Alert[]
-  settings           OrganizationSettings?
-  workspace          Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+model Team {
+  id            String           @id @default(cuid())
+  workspaceId   String
+  name          String
+  inviteCode    String           @unique @default(uuid())
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  workspace     Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)
+  members       TeamMember[]
+  rules         MonitoringRule[]
+  threads       Thread[]
+  emailAccounts EmailAccount[]
+  folders       EmailFolder[]
+  messages      Message[]
+  evaluations   Evaluation[]
+  alerts        Alert[]
+  settings      TeamSettings?
 
   @@index([workspaceId])
 }
 
-model OrganizationMember {
-  id             String           @id @default(cuid())
-  userId         String
-  organizationId String
-  role           OrganizationRole @default(MEMBER)
-  user           User             @relation(fields: [userId], references: [id])
-  organization   Organization     @relation(fields: [organizationId], references: [id])
+model TeamMember {
+  id     String   @id @default(cuid())
+  userId String
+  teamId String
+  role   TeamRole @default(MEMBER)
+  user   User     @relation(fields: [userId], references: [id])
+  team   Team     @relation(fields: [teamId], references: [id])
 
-  @@unique([userId, organizationId])
+  @@unique([userId, teamId])
 }
 
 model EmailAccount {
   id               String           @id @default(cuid())
   userId           String
-  organizationId   String
+  teamId           String
   provider         EmailProvider
   emailAddress     String
   accessToken      String
@@ -171,17 +170,17 @@ model EmailAccount {
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
   user             User             @relation(fields: [userId], references: [id])
-  organization     Organization     @relation(fields: [organizationId], references: [id])
+  team             Team             @relation(fields: [teamId], references: [id])
   threads          Thread[]
   folders          EmailFolder[]
   scopedRules      MonitoringRule[] @relation("RuleAccountScope")
 
-  @@unique([provider, emailAddress, organizationId])
+  @@unique([provider, emailAddress, teamId])
 }
 
 model EmailFolder {
   id             String            @id @default(cuid())
-  organizationId String
+  teamId         String
   emailAccountId String
   externalId     String
   parentId       String?
@@ -194,7 +193,7 @@ model EmailFolder {
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 
-  organization Organization     @relation(fields: [organizationId], references: [id])
+  team         Team             @relation(fields: [teamId], references: [id])
   emailAccount EmailAccount     @relation(fields: [emailAccountId], references: [id], onDelete: Cascade)
   parent       EmailFolder?     @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
   children     EmailFolder[]    @relation("FolderHierarchy")
@@ -202,14 +201,14 @@ model EmailFolder {
   scopedRules  MonitoringRule[] @relation("RuleFolderScope")
 
   @@unique([emailAccountId, externalId])
-  @@index([organizationId])
+  @@index([teamId])
   @@index([emailAccountId, parentId])
   @@index([emailAccountId, path])
 }
 
 model Thread {
   id                   String         @id @default(cuid())
-  organizationId       String
+  teamId               String
   emailAccountId       String
   externalThreadId     String
   subject              String?
@@ -227,138 +226,120 @@ model Thread {
   dismissedAt          DateTime?
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
-  organization         Organization   @relation(fields: [organizationId], references: [id])
+  team                 Team           @relation(fields: [teamId], references: [id])
   emailAccount         EmailAccount   @relation(fields: [emailAccountId], references: [id])
   messages             Message[]
   evaluations          Evaluation[]
   alerts               Alert[]
 
   @@unique([emailAccountId, externalThreadId])
-  @@index([organizationId])
+  @@index([teamId])
   @@index([status])
   @@index([folderIds], type: Gin)
 }
 
 model Message {
-  id             String           @id @default(cuid())
-  organizationId String
-  threadId       String
-  externalId     String // Gmail messageId
-  direction      MessageDirection
-  sender         String
-  recipients     String[]
-  body           String
-  sentAt         DateTime
-  folderId       String?
-  isTracked      Boolean          @default(true)
-  createdAt      DateTime         @default(now())
-  organization   Organization     @relation(fields: [organizationId], references: [id])
-  thread         Thread           @relation(fields: [threadId], references: [id])
-  folder         EmailFolder?     @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  id         String           @id @default(cuid())
+  teamId     String
+  threadId   String
+  externalId String // Gmail messageId
+  direction  MessageDirection
+  sender     String
+  recipients String[]
+  body       String
+  sentAt     DateTime
+  folderId   String?
+  isTracked  Boolean          @default(true)
+  createdAt  DateTime         @default(now())
+  team       Team             @relation(fields: [teamId], references: [id])
+  thread     Thread           @relation(fields: [threadId], references: [id])
+  folder     EmailFolder?     @relation(fields: [folderId], references: [id], onDelete: SetNull)
 
   @@unique([threadId, externalId])
-  @@index([organizationId])
-  @@index([organizationId, sentAt])
+  @@index([teamId])
+  @@index([teamId, sentAt])
   @@index([sentAt])
   @@index([folderId])
   @@index([isTracked])
 }
 
 model Evaluation {
-  id             String         @id @default(cuid())
-  organizationId String
-  threadId       String
-  type           EvaluationType
-  score          Float?
-  result         String
-  triggered      Boolean        @default(false)
-  createdAt      DateTime       @default(now())
-  organization   Organization   @relation(fields: [organizationId], references: [id])
-  thread         Thread         @relation(fields: [threadId], references: [id])
+  id        String         @id @default(cuid())
+  teamId    String
+  threadId  String
+  type      EvaluationType
+  score     Float?
+  result    String
+  triggered Boolean        @default(false)
+  createdAt DateTime       @default(now())
+  team      Team           @relation(fields: [teamId], references: [id])
+  thread    Thread         @relation(fields: [threadId], references: [id])
 
-  @@index([organizationId])
+  @@index([teamId])
   @@index([threadId])
   @@index([type])
 }
 
 model Alert {
-  id             String        @id @default(cuid())
-  organizationId String
-  threadId       String
-  severity       AlertSeverity
-  title          String
-  description    String
-  resolved       Boolean       @default(false)
-  createdAt      DateTime      @default(now())
-  resolvedAt     DateTime?
-  organization   Organization  @relation(fields: [organizationId], references: [id])
-  thread         Thread        @relation(fields: [threadId], references: [id])
+  id          String        @id @default(cuid())
+  teamId      String
+  threadId    String
+  severity    AlertSeverity
+  title       String
+  description String
+  resolved    Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+  resolvedAt  DateTime?
+  team        Team          @relation(fields: [teamId], references: [id])
+  thread      Thread        @relation(fields: [threadId], references: [id])
 
-  @@index([organizationId])
+  @@index([teamId])
   @@index([severity])
   @@index([resolved])
 }
 
 model MonitoringRule {
   id             String         @id @default(cuid())
-  organizationId String
+  teamId         String
   name           String
   evaluationType EvaluationType
   threshold      Float?
   config         Json
   active         Boolean        @default(true)
-  scopeKind      RuleScopeKind  @default(ORGANIZATION)
+  scopeKind      RuleScopeKind  @default(TEAM)
   emailAccountId String?
   folderId       String?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
-  organization   Organization   @relation(fields: [organizationId], references: [id])
+  team           Team           @relation(fields: [teamId], references: [id])
   emailAccount   EmailAccount?  @relation("RuleAccountScope", fields: [emailAccountId], references: [id], onDelete: Cascade)
   folder         EmailFolder?   @relation("RuleFolderScope", fields: [folderId], references: [id], onDelete: SetNull)
 
-  @@index([organizationId])
-  @@index([organizationId, evaluationType, scopeKind])
+  @@index([teamId])
+  @@index([teamId, evaluationType, scopeKind])
 }
 
 model AuditLog {
-  id             String   @id @default(cuid())
-  organizationId String
-  action         String
-  metadata       Json?
-  createdAt      DateTime @default(now())
+  id        String   @id @default(cuid())
+  teamId    String
+  action    String
+  metadata  Json?
+  createdAt DateTime @default(now())
 
-  @@index([organizationId])
-}
-
-model Subscription {
-  id                   String       @id @default(cuid())
-  workspaceId          String       @unique
-  planId               String
-  stripeCustomerId     String?
-  stripeSubscriptionId String?
-  status               String
-  currentPeriodEnd     DateTime?
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
-  workspace            Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  plan                 Plan         @relation(fields: [planId], references: [id])
-
-  @@index([planId])
+  @@index([teamId])
 }
 
 model Plan {
-  id            String         @id @default(cuid())
-  slug          String         @unique
-  name          String
-  description   String?
-  isActive      Boolean        @default(true)
-  sortOrder     Int            @default(0)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  features      PlanFeature[]
-  prices        PlanPrice[]
-  workspaces    Workspace[]    @relation("WorkspaceCurrentPlan")
-  subscriptions Subscription[]
+  id          String        @id @default(cuid())
+  slug        String        @unique
+  name        String
+  description String?
+  isActive    Boolean       @default(true)
+  sortOrder   Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  features    PlanFeature[]
+  users       User[]        @relation("UserCurrentPlan")
 }
 
 model PlanFeature {
@@ -372,35 +353,19 @@ model PlanFeature {
   @@index([planId])
 }
 
-model PlanPrice {
-  id            String       @id @default(cuid())
-  planId        String
-  stripePriceId String       @unique
-  interval      PlanInterval
-  currency      String       @default("usd")
-  unitAmount    Int
-  isActive      Boolean      @default(true)
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  plan          Plan         @relation(fields: [planId], references: [id], onDelete: Cascade)
-
-  @@index([planId])
-  @@index([stripePriceId])
-}
-
 model UsageRecord {
-  id             String   @id @default(cuid())
-  organizationId String
-  metric         String
-  quantity       Int
-  createdAt      DateTime @default(now())
+  id        String   @id @default(cuid())
+  teamId    String
+  metric    String
+  quantity  Int
+  createdAt DateTime @default(now())
 
-  @@index([organizationId])
+  @@index([teamId])
 }
 
-model OrganizationSettings {
+model TeamSettings {
   id                  String  @id @default(uuid())
-  organizationId      String  @unique
+  teamId              String  @unique
   slaMinutes          Int     @default(560)
   slaEnabled          Boolean @default(false)
   weeklyReportEnabled Boolean @default(false)
@@ -410,5 +375,5 @@ model OrganizationSettings {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id])
+  team Team @relation(fields: [teamId], references: [id])
 }

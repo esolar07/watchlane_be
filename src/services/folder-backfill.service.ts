@@ -28,7 +28,7 @@ export async function backfillFolder(folderId: string, opts: BackfillOptions): P
 }
 
 async function ingestAllMessages(
-  account: { id: string; organizationId: string },
+  account: { id: string; teamId: string },
   folder: EmailFolder,
   messages: NormalizedMessage[]
 ): Promise<Set<string>> {
@@ -36,7 +36,7 @@ async function ingestAllMessages(
   for (const message of messages) {
     const threadId = await ingestMessageFromFolder({
       emailAccountId: account.id,
-      organizationId: account.organizationId,
+      teamId: account.teamId,
       folder,
       message,
     });

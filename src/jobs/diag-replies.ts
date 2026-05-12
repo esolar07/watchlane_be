@@ -1,23 +1,23 @@
 import { prisma } from "../lib/prisma";
 
 async function main() {
-  const orgId = "cmmwbmlnh0000ad6hj6zrkqrz";
+  const teamId = "cmmwbmlnh0000ad6hj6zrkqrz";
   const accounts = await prisma.emailAccount.findMany({
-    where: { organizationId: orgId },
+    where: { teamId: teamId },
     select: { id: true, emailAddress: true, lastSyncAt: true },
   });
   console.log("Now:", new Date().toISOString());
   console.log("\nAccounts:");
   for (const a of accounts) console.log(`  ${a.emailAddress}  lastSync=${a.lastSyncAt?.toISOString() ?? "NEVER"}`);
 
-  const threadCount = await prisma.thread.count({ where: { organizationId: orgId } });
-  const messageCount = await prisma.message.count({ where: { thread: { organizationId: orgId } } });
+  const threadCount = await prisma.thread.count({ where: { teamId: teamId } });
+  const messageCount = await prisma.message.count({ where: { thread: { teamId: teamId } } });
   console.log(`\nTotals: ${threadCount} threads, ${messageCount} messages`);
 
   console.log("\nMessages by folder (top 10 by count):");
   const msgByFolder = await prisma.message.groupBy({
     by: ["folderId"],
-    where: { thread: { organizationId: orgId } },
+    where: { thread: { teamId: teamId } },
     _count: true,
   });
   for (const row of msgByFolder) {
@@ -27,7 +27,7 @@ async function main() {
 
   console.log("\nMost recent 10 threads:");
   const recentThreads = await prisma.thread.findMany({
-    where: { organizationId: orgId },
+    where: { teamId: teamId },
     orderBy: { lastMessageAt: "desc" },
     take: 10,
     select: { id: true, subject: true, firstInboundAt: true, firstOutboundAt: true, lastInboundAt: true, lastOutboundAt: true, lastMessageAt: true, coverageStatus: true, folderIds: true, externalThreadId: true },
@@ -42,7 +42,7 @@ async function main() {
 
   console.log("\nMost recent 10 outbound messages:");
   const recentSent = await prisma.message.findMany({
-    where: { thread: { organizationId: orgId }, direction: "OUTBOUND" },
+    where: { thread: { teamId: teamId }, direction: "OUTBOUND" },
     orderBy: { sentAt: "desc" },
     take: 10,
     select: { externalId: true, sentAt: true, isTracked: true, folderId: true, thread: { select: { subject: true, firstInboundAt: true } } },

@@ -43,6 +43,11 @@ export function invalidate(workspaceId: string): void {
   cache.delete(workspaceId);
 }
 
+export async function invalidateForUser(userId: string): Promise<void> {
+  const owned = await prisma.workspace.findMany({ where: { ownerUserId: userId }, select: { id: true } });
+  owned.forEach((w) => cache.delete(w.id));
+}
+
 export function invalidateAll(): void {
   cache.clear();
 }
@@ -57,13 +62,26 @@ function buildFeatures(rows: { key: string; value: string }[]): DecodedFeatures 
   return features as DecodedFeatures;
 }
 
+const PLAN_WITH_FEATURES_SELECT = { slug: true, name: true, features: { select: { key: true, value: true } } } as const;
+
+function shapeEntitlements(plan: { slug: string; name: string; features: { key: string; value: string }[] }): Entitlements {
+  return { plan: { slug: plan.slug, name: plan.name }, features: buildFeatures(plan.features) };
+}
+
 async function loadEntitlements(workspaceId: string): Promise<Entitlements> {
   const ws = await prisma.workspace.findUniqueOrThrow({
     where: { id: workspaceId },
-    select: { currentPlan: { select: { slug: true, name: true, features: { select: { key: true, value: true } } } } },
+    select: { owner: { select: { currentPlan: { select: PLAN_WITH_FEATURES_SELECT } } } },
   });
-  const plan = ws.currentPlan;
-  return { plan: { slug: plan.slug, name: plan.name }, features: buildFeatures(plan.features) };
+  return shapeEntitlements(ws.owner.currentPlan);
+}
+
+async function loadEntitlementsByUser(userId: string): Promise<Entitlements> {
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { currentPlan: { select: PLAN_WITH_FEATURES_SELECT } },
+  });
+  return shapeEntitlements(user.currentPlan);
 }
 
 export async function getEntitlements(workspaceId: string): Promise<Entitlements> {
@@ -74,8 +92,8 @@ export async function getEntitlements(workspaceId: string): Promise<Entitlements
   return entitlements;
 }
 
-export async function getEntitlementsByOrg(organizationId: string): Promise<Entitlements> {
-  const org = await prisma.organization.findUniqueOrThrow({ where: { id: organizationId }, select: { workspaceId: true } });
+export async function getEntitlementsByOrg(teamId: string): Promise<Entitlements> {
+  const org = await prisma.team.findUniqueOrThrow({ where: { id: teamId }, select: { workspaceId: true } });
   return getEntitlements(org.workspaceId);
 }
 
@@ -97,6 +115,20 @@ export async function assertFeature(workspaceId: string, key: PlanFeatureKey): P
 export async function assertWithinLimit(workspaceId: string, key: PlanFeatureKey, currentCount: number): Promise<void> {
   if (!isLimitFeature(key)) throw new Error(`Feature "${key}" is not a limit feature`);
   const limit = await getFeature(workspaceId, key);
+  enforceLimit(key, limit as unknown as number | null, currentCount);
+}
+
+export async function getEntitlementsByUser(userId: string): Promise<Entitlements> {
+  return loadEntitlementsByUser(userId);
+}
+
+export async function assertWithinLimitForUser(userId: string, key: PlanFeatureKey, currentCount: number): Promise<void> {
+  if (!isLimitFeature(key)) throw new Error(`Feature "${key}" is not a limit feature`);
+  const entitlements = await getEntitlementsByUser(userId);
+  enforceLimit(key, entitlements.features[key] as unknown as number | null, currentCount);
+}
+
+function enforceLimit(key: PlanFeatureKey, limit: number | null, currentCount: number): void {
   if (limit === null) return;
-  if (typeof limit === "number" && currentCount >= limit) throw new LimitReachedError(key, limit, currentCount);
+  if (currentCount >= limit) throw new LimitReachedError(key, limit, currentCount);
 }

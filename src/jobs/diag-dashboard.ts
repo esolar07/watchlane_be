@@ -2,7 +2,7 @@ import { getDashboardMetrics } from "../services/dashboard.service";
 import { prisma } from "../lib/prisma";
 
 async function main() {
-  const orgId = "cmmwbmlnh0000ad6hj6zrkqrz";
+  const teamId = "cmmwbmlnh0000ad6hj6zrkqrz";
   const ranges = [
     { name: "last 7 days", days: 7 },
     { name: "last 30 days", days: 30 },
@@ -11,7 +11,7 @@ async function main() {
   for (const r of ranges) {
     const startDate = new Date(Date.now() - r.days * 24 * 60 * 60 * 1000);
     const endDate = new Date();
-    const result = await getDashboardMetrics({ organizationId: orgId, startDate, endDate });
+    const result = await getDashboardMetrics({ teamId: teamId, startDate, endDate });
     console.log(`\n=== ${r.name} (${startDate.toISOString().slice(0, 10)} to ${endDate.toISOString().slice(0, 10)}) ===`);
     console.log(`breaches=${result.breaches}  atRisk=${result.atRisk}  coveredWithinSla=${result.coveredWithinSla}  totalInbound=${result.totalInbound}`);
     console.log(`openCount=${result.openCount}  overdueCount=${result.overdueCount}`);

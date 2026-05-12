@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authenticate, attachOrgContext, requireRole } from "../middleware/auth";
+import { authenticate, attachTeamContext, requireRole } from "../middleware/auth";
 import {
   getAuthUrls,
   googleCallback,
@@ -24,7 +24,7 @@ router.get("/me", authenticate, me);
 router.get(
   "/microsoft/connect-url",
   authenticate,
-  attachOrgContext,
+  attachTeamContext,
   requireRole("OWNER", "ADMIN", "MEMBER"),
   getMailboxConnectUrl
 );

@@ -13,7 +13,6 @@ import {
 import { syncMailbox } from "../services/microsoft-mail.service";
 import { assertWithinLimit } from "../services/entitlements.service";
 import { HttpError } from "../lib/errors";
-import { ensureUserHasWorkspace, defaultWorkspaceName } from "../services/workspace.service";
 
 const googleClient = new OAuth2Client(
   config.google.clientId,
@@ -32,12 +31,15 @@ async function findOrCreateUser(email: string, name?: string) {
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
     if (name) await prisma.user.update({ where: { email }, data: { name } });
-    await ensureUserHasWorkspace(existing.id, defaultWorkspaceName(existing.name ?? name, email));
     return existing;
   }
-  const created = await prisma.user.create({ data: { email, name } });
-  await ensureUserHasWorkspace(created.id, defaultWorkspaceName(name, email));
-  return created;
+  const freePlanId = await resolveFreePlanId();
+  return prisma.user.create({ data: { email, name, currentPlanId: freePlanId } });
+}
+
+async function resolveFreePlanId(): Promise<string> {
+  const free = await prisma.plan.findUniqueOrThrow({ where: { slug: "free" }, select: { id: true } });
+  return free.id;
 }
 
 export async function getAuthUrls(_req: Request, res: Response) {
@@ -95,20 +97,20 @@ export async function microsoftCallback(req: Request, res: Response) {
   const stateRaw = req.query.state as string | undefined;
   let flow = "sso";
   let inviteCode: string | undefined;
-  let orgId: string | undefined;
+  let teamId: string | undefined;
   if (stateRaw) {
     try {
       const parsed = JSON.parse(Buffer.from(stateRaw, "base64url").toString());
       flow = parsed.flow ?? "sso";
       inviteCode = parsed.inviteCode;
-      orgId = parsed.orgId;
+      teamId = parsed.teamId;
     } catch {
       // unparseable state — default to SSO
     }
   }
 
-  if (flow === "mailbox" && orgId) {
-    return handleMailboxCallback(req, res, code, orgId);
+  if (flow === "mailbox" && teamId) {
+    return handleMailboxCallback(req, res, code, teamId);
   }
   if (flow === "invite" && inviteCode) {
     return handleInviteCallback(res, code, inviteCode);
@@ -135,7 +137,7 @@ async function handleSsoCallback(res: Response, code: string) {
   res.redirect(config.frontendUrl);
 }
 
-async function handleMailboxCallback(req: Request, res: Response, code: string, orgId: string) {
+async function handleMailboxCallback(req: Request, res: Response, code: string, teamId: string) {
   const token = req.cookies?.token;
   if (!token) {
     res.status(401).json({ error: "Authentication required to connect mailbox" });
@@ -164,7 +166,7 @@ async function handleMailboxCallback(req: Request, res: Response, code: string, 
 
   const expiresAt = new Date(Date.now() + tokens.expires_in * 1000);
   try {
-    await assertMailboxLimitOnCreate(orgId, email);
+    await assertMailboxLimitOnCreate(teamId, email);
   } catch (err) {
     if (err instanceof HttpError) {
       res.status(err.statusCode).json(err.body ?? { error: err.message });
@@ -174,10 +176,10 @@ async function handleMailboxCallback(req: Request, res: Response, code: string, 
   }
   const emailAccount = await prisma.emailAccount.upsert({
     where: {
-      provider_emailAddress_organizationId: {
+      provider_emailAddress_teamId: {
         provider: "MICROSOFT",
         emailAddress: email,
-        organizationId: orgId,
+        teamId: teamId,
       },
     },
     update: {
@@ -187,7 +189,7 @@ async function handleMailboxCallback(req: Request, res: Response, code: string, 
     },
     create: {
       userId: user.userId,
-      organizationId: orgId,
+      teamId: teamId,
       provider: "MICROSOFT",
       emailAddress: email,
       accessToken: encrypt(tokens.access_token),
@@ -200,14 +202,14 @@ async function handleMailboxCallback(req: Request, res: Response, code: string, 
   res.redirect(`${config.frontendUrl}/settings/mailbox?connected=true`);
 }
 
-async function assertMailboxLimitOnCreate(orgId: string, emailAddress: string): Promise<void> {
+async function assertMailboxLimitOnCreate(teamId: string, emailAddress: string): Promise<void> {
   const existing = await prisma.emailAccount.findUnique({
-    where: { provider_emailAddress_organizationId: { provider: "MICROSOFT", emailAddress, organizationId: orgId } },
+    where: { provider_emailAddress_teamId: { provider: "MICROSOFT", emailAddress, teamId: teamId } },
     select: { id: true },
   });
   if (existing) return;
-  const org = await prisma.organization.findUniqueOrThrow({ where: { id: orgId }, select: { workspaceId: true } });
-  const currentCount = await prisma.emailAccount.count({ where: { organization: { workspaceId: org.workspaceId } } });
+  const org = await prisma.team.findUniqueOrThrow({ where: { id: teamId }, select: { workspaceId: true } });
+  const currentCount = await prisma.emailAccount.count({ where: { team: { workspaceId: org.workspaceId } } });
   await assertWithinLimit(org.workspaceId, "mailbox_limit", currentCount);
 }
 
@@ -225,7 +227,7 @@ async function handleInviteCallback(res: Response, code: string, inviteCode: str
     return;
   }
 
-  const org = await prisma.organization.findUnique({ where: { inviteCode } });
+  const org = await prisma.team.findUnique({ where: { inviteCode } });
   if (!org) {
     res.status(400).json({ error: "Invalid invite code" });
     return;
@@ -233,18 +235,22 @@ async function handleInviteCallback(res: Response, code: string, inviteCode: str
 
   const user = await findOrCreateUser(email, name);
 
-  const existingMembership = await prisma.organizationMember.findUnique({
-    where: { userId_organizationId: { userId: user.id, organizationId: org.id } },
+  const existingMembership = await prisma.teamMember.findUnique({
+    where: { userId_teamId: { userId: user.id, teamId: org.id } },
   });
 
   if (!existingMembership) {
-    await prisma.organizationMember.create({
+    await prisma.teamMember.create({
       data: {
         userId: user.id,
-        organizationId: org.id,
+        teamId: org.id,
         role: "MEMBER",
       },
     });
+  }
+
+  if (!user.onboardingCompletedAt) {
+    await prisma.user.update({ where: { id: user.id }, data: { onboardingCompletedAt: new Date() } });
   }
 
   const jwt = signToken({ userId: user.id, email: user.email });
@@ -261,7 +267,7 @@ export async function getInviteAuthUrl(req: Request, res: Response) {
     return;
   }
 
-  const org = await prisma.organization.findUnique({ where: { inviteCode } });
+  const org = await prisma.team.findUnique({ where: { inviteCode } });
   if (!org) {
     res.status(404).json({ error: "Invalid invite code" });
     return;
@@ -277,13 +283,13 @@ export async function getInviteAuthUrl(req: Request, res: Response) {
     state,
   });
   const url = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?${msParams}`;
-  res.json({ url, organizationName: org.name });
+  res.json({ url, teamName: org.name });
 }
 
 // ── Mailbox connect URL (authenticated endpoint) ───────────────────
 
 export async function getMailboxConnectUrl(req: Request, res: Response) {
-  const state = Buffer.from(JSON.stringify({ flow: "mailbox", orgId: req.org!.orgId })).toString("base64url");
+  const state = Buffer.from(JSON.stringify({ flow: "mailbox", teamId: req.team!.teamId })).toString("base64url");
   const msParams = new URLSearchParams({
     client_id: config.microsoft.clientId,
     response_type: "code",
@@ -314,10 +320,10 @@ export async function me(req: Request, res: Response) {
     res.status(404).json({ error: "User not found" });
     return;
   }
-  const memberships = await prisma.organizationMember.findMany({
+  const memberships = await prisma.teamMember.findMany({
     where: { userId: user.id },
     include: {
-      organization: {
+      team: {
         select: {
           id: true,
           name: true,
@@ -337,41 +343,36 @@ export async function me(req: Request, res: Response) {
       email: user.email,
       name: user.name,
     },
-    organizations: memberships.map((m) => ({
-      id: m.organization.id,
-      name: m.organization.name,
+    teams: memberships.map((m) => ({
+      id: m.team.id,
+      name: m.team.name,
       role: m.role,
-      mailboxConnected: m.organization.emailAccounts.length > 0,
+      mailboxConnected: m.team.emailAccounts.length > 0,
     })),
   });
 }
 
 export async function devSeed(_req: Request, res: Response) {
+  const freePlanId = await resolveFreePlanId();
   const user = await prisma.user.upsert({
     where: { email: "test@watchlane.dev" },
-    update: {},
-    create: { email: "test@watchlane.dev", name: "Test User" },
+    update: { onboardingCompletedAt: new Date() },
+    create: { email: "test@watchlane.dev", name: "Test User", currentPlanId: freePlanId, onboardingCompletedAt: new Date() },
   });
-  const freePlan = await prisma.plan.findUniqueOrThrow({ where: { slug: "free" }, select: { id: true } });
   const workspace = await prisma.workspace.upsert({
     where: { id: "test-workspace-id" },
     update: {},
-    create: { id: "test-workspace-id", name: "Test Workspace", currentPlanId: freePlan.id },
+    create: { id: "test-workspace-id", name: "Test Workspace", ownerUserId: user.id },
   });
-  await prisma.workspaceMember.upsert({
-    where: { userId_workspaceId: { userId: user.id, workspaceId: workspace.id } },
-    update: {},
-    create: { userId: user.id, workspaceId: workspace.id, role: "OWNER" },
-  });
-  const org = await prisma.organization.upsert({
+  const org = await prisma.team.upsert({
     where: { id: "test-org-id" },
     update: {},
-    create: { id: "test-org-id", name: "Test Organization", workspaceId: workspace.id },
+    create: { id: "test-org-id", name: "Test Team", workspaceId: workspace.id },
   });
-  await prisma.organizationMember.upsert({
-    where: { userId_organizationId: { userId: user.id, organizationId: org.id } },
+  await prisma.teamMember.upsert({
+    where: { userId_teamId: { userId: user.id, teamId: org.id } },
     update: {},
-    create: { userId: user.id, organizationId: org.id, role: "OWNER" },
+    create: { userId: user.id, teamId: org.id, role: "OWNER" },
   });
   const token = signToken({ userId: user.id, email: user.email });
   res.cookie("token", token, cookieOptions);

@@ -1,4 +1,4 @@
-export interface CreateOrganizationBody {
+export interface CreateTeamBody {
   name: string;
   slaMinutes?: number;
   slaEnabled?: boolean;
@@ -7,7 +7,7 @@ export interface CreateOrganizationBody {
   notifyOnBreach?: boolean;
 }
 
-export interface UpdateOrganizationBody {
+export interface UpdateTeamBody {
   name?: string;
   settings?: {
     slaMinutes?: number;

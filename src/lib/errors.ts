@@ -25,7 +25,7 @@ export class PlanNotFoundError extends HttpError {
 
 export class PlanInUseError extends HttpError {
   constructor(planId: string) {
-    super(409, `Plan is referenced by existing organizations or subscriptions`, { error: "Plan is in use and cannot be deleted", planId });
+    super(409, `Plan is referenced by existing users`, { error: "Plan is in use and cannot be deleted", planId });
   }
 }
 

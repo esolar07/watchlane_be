@@ -4,14 +4,14 @@ import { backfillFolder } from "../services/folder-backfill.service";
 import { fetchMicrosoftMessagesInFolder } from "../services/microsoft-mail.service";
 
 export async function listFolders(req: Request, res: Response) {
-  if (!req.org) {
-    res.status(403).json({ error: "Organization context required" });
+  if (!req.team) {
+    res.status(403).json({ error: "Team context required" });
     return;
   }
   const accountId = String(req.params.accountId);
-  const orgId = req.org.orgId;
+  const teamId = req.team.teamId;
   const account = await prisma.emailAccount.findFirst({
-    where: { id: accountId, organizationId: orgId },
+    where: { id: accountId, teamId: teamId },
     select: { id: true },
   });
   if (!account) {
@@ -19,30 +19,30 @@ export async function listFolders(req: Request, res: Response) {
     return;
   }
   const folders = await prisma.emailFolder.findMany({
-    where: { emailAccountId: accountId, organizationId: orgId },
+    where: { emailAccountId: accountId, teamId: teamId },
     orderBy: { path: "asc" },
   });
   await prisma.emailFolder.updateMany({
-    where: { emailAccountId: accountId, organizationId: orgId, isNew: true },
+    where: { emailAccountId: accountId, teamId: teamId, isNew: true },
     data: { isNew: false },
   });
   res.json({ folders });
 }
 
 export async function setFolderMonitored(req: Request, res: Response) {
-  if (!req.org) {
-    res.status(403).json({ error: "Organization context required" });
+  if (!req.team) {
+    res.status(403).json({ error: "Team context required" });
     return;
   }
   const folderId = String(req.params.folderId);
-  const orgId = req.org.orgId;
+  const teamId = req.team.teamId;
   const parsedValue = parseMonitoredValue(req.body?.monitored);
   if (parsedValue.error) {
     res.status(400).json({ error: parsedValue.error });
     return;
   }
   const folder = await prisma.emailFolder.findFirst({
-    where: { id: folderId, organizationId: orgId },
+    where: { id: folderId, teamId: teamId },
   });
   if (!folder) {
     res.status(404).json({ error: "Folder not found" });

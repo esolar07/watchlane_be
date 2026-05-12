@@ -1,10 +1,10 @@
 import { Router } from "express";
-import { authenticate, attachOrgContext } from "../middleware/auth";
+import { authenticate, attachTeamContext } from "../middleware/auth";
 import { listRules, createRule } from "../controllers/rule.controller";
 
 const router = Router();
 
-router.get("/rules", authenticate, attachOrgContext, listRules);
-router.post("/rules", authenticate, attachOrgContext, createRule);
+router.get("/rules", authenticate, attachTeamContext, listRules);
+router.post("/rules", authenticate, attachTeamContext, createRule);
 
 export default router;

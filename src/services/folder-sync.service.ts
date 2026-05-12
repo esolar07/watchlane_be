@@ -26,7 +26,7 @@ export async function syncFolderTree(
   const phase: SyncPhase = account.foldersDeltaLink ? "DELTA" : "INITIAL";
   const { items, deltaLink } = await fetcher(accessToken, account.foldersDeltaLink ?? undefined);
   const systemKindByExternalId = await systemKindResolver(emailAccountId, accessToken, phase);
-  await upsertFolders(emailAccountId, items, { phase, systemKindByExternalId, organizationId: account.organizationId });
+  await upsertFolders(emailAccountId, items, { phase, systemKindByExternalId, teamId: account.teamId });
   if (deltaLink) await persistDeltaLink(emailAccountId, deltaLink);
 }
 
@@ -54,7 +54,7 @@ async function persistDeltaLink(emailAccountId: string, deltaLink: string): Prom
 interface UpsertOptions {
   phase: SyncPhase;
   systemKindByExternalId: Map<string, SystemFolderKind>;
-  organizationId: string;
+  teamId: string;
 }
 
 export async function upsertFolders(
@@ -96,7 +96,7 @@ async function upsertSingleFolder(
   await prisma.emailFolder.upsert({
     where: { emailAccountId_externalId: { emailAccountId, externalId: item.id } },
     update: { name: item.displayName, parentId, path, systemKind, isSystem: systemKind !== null },
-    create: buildFolderCreateData(emailAccountId, item, parentId, path, systemKind, monitored, isNew, opts.organizationId),
+    create: buildFolderCreateData(emailAccountId, item, parentId, path, systemKind, monitored, isNew, opts.teamId),
   });
 }
 
@@ -108,10 +108,10 @@ function buildFolderCreateData(
   systemKind: SystemFolderKind | null,
   monitored: boolean | null,
   isNew: boolean,
-  organizationId: string
+  teamId: string
 ) {
   return {
-    organizationId,
+    teamId,
     emailAccountId,
     externalId: item.id,
     name: item.displayName,

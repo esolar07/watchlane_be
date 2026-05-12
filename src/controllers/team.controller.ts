@@ -1,10 +1,9 @@
 import type { Request, Response } from "express";
 import { prisma } from "../lib/prisma";
-import type { CreateOrganizationBody, UpdateOrganizationBody } from "../types/organization";
+import type { CreateTeamBody, UpdateTeamBody } from "../types/team";
 import { assertWithinLimit } from "../services/entitlements.service";
 import { NotAuthorizedError, ValidationError } from "../lib/errors";
 
-const PLAN_SUMMARY_SELECT = { select: { slug: true, name: true } } as const;
 const SETTINGS_SELECT = {
   select: {
     slaMinutes: true,
@@ -26,18 +25,18 @@ function validateSettingsInput(input: { slaMinutes?: number | null; weeklyReport
   return null;
 }
 
-export async function listOrganizations(req: Request, res: Response) {
+export async function listTeams(req: Request, res: Response) {
   const userId = req.user!.userId;
-  const memberships = await prisma.organizationMember.findMany({
+  const memberships = await prisma.teamMember.findMany({
     where: { userId },
     include: {
-      organization: {
+      team: {
         select: {
           id: true,
           name: true,
           createdAt: true,
           workspaceId: true,
-          workspace: { select: { name: true, currentPlan: PLAN_SUMMARY_SELECT } },
+          workspace: { select: { name: true } },
           settings: SETTINGS_SELECT,
           emailAccounts: { where: { userId }, select: { id: true }, take: 1 },
         },
@@ -47,37 +46,36 @@ export async function listOrganizations(req: Request, res: Response) {
 
   res.json(
     memberships.map((m) => ({
-      id: m.organization.id,
-      name: m.organization.name,
-      workspaceId: m.organization.workspaceId,
-      workspaceName: m.organization.workspace.name,
-      plan: m.organization.workspace.currentPlan,
+      id: m.team.id,
+      name: m.team.name,
+      workspaceId: m.team.workspaceId,
+      workspaceName: m.team.workspace.name,
       role: m.role,
-      createdAt: m.organization.createdAt,
-      mailboxConnected: m.organization.emailAccounts.length > 0,
-      settings: m.organization.settings ?? null,
+      createdAt: m.team.createdAt,
+      mailboxConnected: m.team.emailAccounts.length > 0,
+      settings: m.team.settings ?? null,
     }))
   );
 }
 
-export async function createOrganization(req: Request<{}, {}, CreateOrganizationBody>, res: Response) {
+export async function createTeam(req: Request<{}, {}, CreateTeamBody>, res: Response) {
   if (!req.workspace) throw new NotAuthorizedError("Workspace context required");
   const { name, slaMinutes, slaEnabled, weeklyReportEnabled, weeklyReportDay, notifyOnBreach } = req.body;
-  if (!name || typeof name !== "string" || name.trim().length === 0) throw new ValidationError("Organization name is required");
+  if (!name || typeof name !== "string" || name.trim().length === 0) throw new ValidationError("Team name is required");
   const settingsError = validateSettingsInput({ weeklyReportDay, slaMinutes });
   if (settingsError) throw new ValidationError(settingsError);
 
   const workspaceId = req.workspace.workspaceId;
   const userId = req.user!.userId;
-  const currentOrgCount = await prisma.organization.count({ where: { workspaceId } });
-  await assertWithinLimit(workspaceId, "org_limit", currentOrgCount);
+  const currentTeamCount = await prisma.team.count({ where: { workspaceId } });
+  await assertWithinLimit(workspaceId, "team_limit", currentTeamCount);
 
   const result = await prisma.$transaction(async (tx) => {
-    const org = await tx.organization.create({ data: { name: name.trim(), workspaceId } });
-    const member = await tx.organizationMember.create({ data: { userId, organizationId: org.id, role: "OWNER" } });
-    const settings = await tx.organizationSettings.create({
+    const team = await tx.team.create({ data: { name: name.trim(), workspaceId } });
+    const member = await tx.teamMember.create({ data: { userId, teamId: team.id, role: "OWNER" } });
+    const settings = await tx.teamSettings.create({
       data: {
-        organizationId: org.id,
+        teamId: team.id,
         ...(slaMinutes !== undefined && { slaMinutes }),
         ...(slaEnabled !== undefined && { slaEnabled }),
         ...(weeklyReportEnabled !== undefined && { weeklyReportEnabled }),
@@ -85,15 +83,15 @@ export async function createOrganization(req: Request<{}, {}, CreateOrganization
         ...(notifyOnBreach !== undefined && { notifyOnBreach }),
       },
     });
-    return { org, member, settings };
+    return { team, member, settings };
   });
 
   res.status(201).json({
-    id: result.org.id,
-    name: result.org.name,
-    workspaceId: result.org.workspaceId,
+    id: result.team.id,
+    name: result.team.name,
+    workspaceId: result.team.workspaceId,
     role: result.member.role,
-    inviteCode: result.org.inviteCode,
+    inviteCode: result.team.inviteCode,
     settings: {
       slaMinutes: result.settings.slaMinutes,
       slaEnabled: result.settings.slaEnabled,
@@ -104,18 +102,18 @@ export async function createOrganization(req: Request<{}, {}, CreateOrganization
   });
 }
 
-export async function getOrganization(req: Request<{ id: string }>, res: Response) {
+export async function getTeam(req: Request<{ id: string }>, res: Response) {
   const { id } = req.params;
   const userId = req.user!.userId;
 
-  const membership = await prisma.organizationMember.findUnique({
-    where: { userId_organizationId: { userId, organizationId: id } },
+  const membership = await prisma.teamMember.findUnique({
+    where: { userId_teamId: { userId, teamId: id } },
     include: {
-      organization: {
+      team: {
         include: {
-          workspace: { select: { id: true, name: true, currentPlan: PLAN_SUMMARY_SELECT } },
+          workspace: { select: { id: true, name: true } },
           settings: SETTINGS_SELECT,
-          OrganizationMember: { include: { user: { select: { id: true, name: true, email: true } } } },
+          members: { include: { user: { select: { id: true, name: true, email: true } } } },
           emailAccounts: { select: { id: true, userId: true } },
         },
       },
@@ -123,64 +121,62 @@ export async function getOrganization(req: Request<{ id: string }>, res: Respons
   });
 
   if (!membership) {
-    res.status(404).json({ error: "Organization not found" });
+    res.status(404).json({ error: "Team not found" });
     return;
   }
 
-  const org = membership.organization;
+  const team = membership.team;
   const isAdminOrOwner = membership.role === "OWNER" || membership.role === "ADMIN";
   res.json({
-    id: org.id,
-    name: org.name,
-    workspaceId: org.workspace.id,
-    workspaceName: org.workspace.name,
-    plan: org.workspace.currentPlan,
+    id: team.id,
+    name: team.name,
+    workspaceId: team.workspace.id,
+    workspaceName: team.workspace.name,
     role: membership.role,
-    createdAt: org.createdAt,
-    ...(isAdminOrOwner && { inviteCode: org.inviteCode }),
-    settings: org.settings ?? null,
-    members: org.OrganizationMember.map((m) => ({
+    createdAt: team.createdAt,
+    ...(isAdminOrOwner && { inviteCode: team.inviteCode }),
+    settings: team.settings ?? null,
+    members: team.members.map((m) => ({
       name: m.user.name,
       email: m.user.email,
       role: m.role,
-      mailboxConnected: org.emailAccounts.some((ea) => ea.userId === m.user.id),
+      mailboxConnected: team.emailAccounts.some((ea) => ea.userId === m.user.id),
     })),
   });
 }
 
-export async function updateOrganization(req: Request<{ id: string }, {}, UpdateOrganizationBody>, res: Response) {
+export async function updateTeam(req: Request<{ id: string }, {}, UpdateTeamBody>, res: Response) {
   const { id } = req.params;
   const userId = req.user!.userId;
   const { name, settings } = req.body;
   const { slaMinutes, slaEnabled, weeklyReportEnabled, weeklyReportDay, notifyOnBreach } = settings ?? {};
 
-  const membership = await prisma.organizationMember.findUnique({ where: { userId_organizationId: { userId, organizationId: id } } });
+  const membership = await prisma.teamMember.findUnique({ where: { userId_teamId: { userId, teamId: id } } });
   if (!membership) {
-    res.status(404).json({ error: "Organization not found" });
+    res.status(404).json({ error: "Team not found" });
     return;
   }
   if (membership.role !== "OWNER" && membership.role !== "ADMIN") {
-    res.status(403).json({ error: "Only OWNER or ADMIN can update the organization" });
+    res.status(403).json({ error: "Only OWNER or ADMIN can update the team" });
     return;
   }
-  if (name !== undefined && (typeof name !== "string" || name.trim().length === 0)) throw new ValidationError("Organization name cannot be empty");
+  if (name !== undefined && (typeof name !== "string" || name.trim().length === 0)) throw new ValidationError("Team name cannot be empty");
   const settingsError = validateSettingsInput({ weeklyReportDay, slaMinutes });
   if (settingsError) throw new ValidationError(settingsError);
 
   const hasSettingsUpdate = [slaMinutes, slaEnabled, weeklyReportEnabled, weeklyReportDay, notifyOnBreach].some((v) => v !== undefined);
 
   const result = await prisma.$transaction(async (tx) => {
-    const org = await tx.organization.update({
+    const team = await tx.team.update({
       where: { id },
       data: { ...(name !== undefined && { name: name.trim() }) },
-      include: { workspace: { select: { currentPlan: PLAN_SUMMARY_SELECT } } },
     });
     let settingsRow = null;
     if (hasSettingsUpdate) {
-      settingsRow = await tx.organizationSettings.upsert({
-        where: { organizationId: id },
+      settingsRow = await tx.teamSettings.upsert({
+        where: { teamId: id },
         create: {
-          organizationId: id,
+          teamId: id,
           ...(slaMinutes !== undefined && { slaMinutes }),
           ...(slaEnabled !== undefined && { slaEnabled }),
           ...(weeklyReportEnabled !== undefined && { weeklyReportEnabled }),
@@ -196,16 +192,15 @@ export async function updateOrganization(req: Request<{ id: string }, {}, Update
         },
       });
     } else {
-      settingsRow = await tx.organizationSettings.findUnique({ where: { organizationId: id } });
+      settingsRow = await tx.teamSettings.findUnique({ where: { teamId: id } });
     }
-    return { org, settings: settingsRow };
+    return { team, settings: settingsRow };
   });
 
   res.json({
-    id: result.org.id,
-    name: result.org.name,
-    workspaceId: result.org.workspaceId,
-    plan: result.org.workspace.currentPlan,
+    id: result.team.id,
+    name: result.team.name,
+    workspaceId: result.team.workspaceId,
     settings: result.settings
       ? {
           slaMinutes: result.settings.slaMinutes,
@@ -218,18 +213,18 @@ export async function updateOrganization(req: Request<{ id: string }, {}, Update
   });
 }
 
-export async function regenerateInviteCode(req: Request<{ id: string }>, res: Response) {
+export async function regenerateTeamInviteCode(req: Request<{ id: string }>, res: Response) {
   const { id } = req.params;
   const userId = req.user!.userId;
-  const membership = await prisma.organizationMember.findUnique({ where: { userId_organizationId: { userId, organizationId: id } } });
+  const membership = await prisma.teamMember.findUnique({ where: { userId_teamId: { userId, teamId: id } } });
   if (!membership) {
-    res.status(404).json({ error: "Organization not found" });
+    res.status(404).json({ error: "Team not found" });
     return;
   }
   if (membership.role !== "OWNER" && membership.role !== "ADMIN") {
     res.status(403).json({ error: "Only OWNER or ADMIN can regenerate the invite code" });
     return;
   }
-  const org = await prisma.organization.update({ where: { id }, data: { inviteCode: crypto.randomUUID() } });
-  res.json({ inviteCode: org.inviteCode });
+  const team = await prisma.team.update({ where: { id }, data: { inviteCode: crypto.randomUUID() } });
+  res.json({ inviteCode: team.inviteCode });
 }

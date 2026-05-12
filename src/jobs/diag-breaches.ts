@@ -1,19 +1,19 @@
 import { prisma } from "../lib/prisma";
 
 async function main() {
-  const orgId = "cmmwbmlnh0000ad6hj6zrkqrz";
-  const settings = await prisma.organizationSettings.findUnique({ where: { organizationId: orgId } });
+  const teamId = "cmmwbmlnh0000ad6hj6zrkqrz";
+  const settings = await prisma.teamSettings.findUnique({ where: { teamId: teamId } });
   const slaMin = settings?.slaMinutes ?? 560;
   console.log(`SLA target: ${slaMin} minutes (${(slaMin / 60).toFixed(1)} hours)`);
 
   const account = await prisma.emailAccount.findFirstOrThrow({
-    where: { organizationId: orgId },
+    where: { teamId: teamId },
     select: { id: true, lastSyncAt: true },
   });
   console.log(`lastSync: ${account.lastSyncAt?.toISOString()}\n`);
 
   const threads = await prisma.thread.findMany({
-    where: { organizationId: orgId },
+    where: { teamId: teamId },
     orderBy: { lastMessageAt: "desc" },
     select: { id: true, subject: true, firstInboundAt: true, firstOutboundAt: true, lastInboundAt: true, lastOutboundAt: true, lastMessageAt: true, coverageStatus: true, folderIds: true },
   });

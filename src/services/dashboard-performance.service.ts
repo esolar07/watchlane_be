@@ -28,14 +28,14 @@ interface PerformanceReport {
 }
 
 interface PerformanceParams {
-  organizationId: string;
+  teamId: string;
   startDate: Date;
   endDate: Date;
   repId?: string;
 }
 
 export async function getPerformanceReport(params: PerformanceParams): Promise<PerformanceReport> {
-  const slaTarget = await loadSlaTarget(params.organizationId);
+  const slaTarget = await loadSlaTarget(params.teamId);
   const threads = await loadThreadsInWindow(params);
   const summary = summarizeThreads(threads);
   const lateResponseThreads = await buildLateResponseList(threads, slaTarget);
@@ -64,15 +64,15 @@ function assembleReport(
   };
 }
 
-async function loadSlaTarget(organizationId: string): Promise<number> {
-  const settings = await prisma.organizationSettings.findUnique({ where: { organizationId } });
+async function loadSlaTarget(teamId: string): Promise<number> {
+  const settings = await prisma.teamSettings.findUnique({ where: { teamId } });
   return settings?.slaMinutes ?? DEFAULT_SLA_MINUTES;
 }
 
 async function loadThreadsInWindow(params: PerformanceParams) {
   return prisma.thread.findMany({
     where: {
-      organizationId: params.organizationId,
+      teamId: params.teamId,
       firstInboundAt: { gte: params.startDate, lte: params.endDate },
       ...(params.repId && { emailAccount: { userId: params.repId } }),
     },

@@ -21,8 +21,9 @@ function encodeBool(value: boolean): string {
 }
 
 export const PLAN_FEATURES = {
+  workspace_limit:   { decode: decodeIntOrUnlimited, encode: encodeIntOrUnlimited, defaultValue: 1 as IntOrUnlimited },
   mailbox_limit:     { decode: decodeIntOrUnlimited, encode: encodeIntOrUnlimited, defaultValue: 1 as IntOrUnlimited },
-  org_limit:         { decode: decodeIntOrUnlimited, encode: encodeIntOrUnlimited, defaultValue: 1 as IntOrUnlimited },
+  team_limit:        { decode: decodeIntOrUnlimited, encode: encodeIntOrUnlimited, defaultValue: 1 as IntOrUnlimited },
   history_days:      { decode: decodeIntOrUnlimited, encode: encodeIntOrUnlimited, defaultValue: 7 as IntOrUnlimited },
   weekly_reports:    { decode: decodeBool,           encode: encodeBool,           defaultValue: false },
   folder_monitoring: { decode: decodeBool,           encode: encodeBool,           defaultValue: false },

@@ -3,10 +3,10 @@ import { getOperationalSnapshot } from "../services/dashboard-operational.servic
 import { getPerformanceReport } from "../services/dashboard-performance.service";
 
 async function main() {
-  const orgId = "cmmwbmlnh0000ad6hj6zrkqrz";
+  const teamId = "cmmwbmlnh0000ad6hj6zrkqrz";
 
   console.log("=== /api/dashboard/operational ===");
-  const op = await getOperationalSnapshot({ organizationId: orgId });
+  const op = await getOperationalSnapshot({ teamId: teamId });
   console.log(`slaTarget=${op.slaTarget} lastSyncAt=${op.lastSyncAt?.toISOString()}`);
   console.log(`overdueCount=${op.overdueCount} atRiskCount=${op.atRiskCount} openCount=${op.openCount}`);
   console.log(`oldestUncoveredMinutes=${op.oldestUncoveredMinutes}`);
@@ -16,7 +16,7 @@ async function main() {
 
   console.log("\n=== /api/dashboard/performance (last 90 days) ===");
   const perf = await getPerformanceReport({
-    organizationId: orgId,
+    teamId: teamId,
     startDate: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
     endDate: new Date(),
   });

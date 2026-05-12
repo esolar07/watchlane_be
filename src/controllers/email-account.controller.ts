@@ -10,12 +10,12 @@ const ACCOUNT_PUBLIC_FIELDS = {
 } as const;
 
 export async function listEmailAccounts(req: Request, res: Response) {
-  if (!req.org) {
-    res.status(403).json({ error: "Organization context required" });
+  if (!req.team) {
+    res.status(403).json({ error: "Team context required" });
     return;
   }
   const accounts = await prisma.emailAccount.findMany({
-    where: { organizationId: req.org.orgId },
+    where: { teamId: req.team.teamId },
     select: ACCOUNT_PUBLIC_FIELDS,
     orderBy: { createdAt: "asc" },
   });
@@ -23,13 +23,13 @@ export async function listEmailAccounts(req: Request, res: Response) {
 }
 
 export async function getEmailAccount(req: Request, res: Response) {
-  if (!req.org) {
-    res.status(403).json({ error: "Organization context required" });
+  if (!req.team) {
+    res.status(403).json({ error: "Team context required" });
     return;
   }
   const accountId = String(req.params.accountId);
   const account = await prisma.emailAccount.findFirst({
-    where: { id: accountId, organizationId: req.org.orgId },
+    where: { id: accountId, teamId: req.team.teamId },
     select: ACCOUNT_PUBLIC_FIELDS,
   });
   if (!account) {

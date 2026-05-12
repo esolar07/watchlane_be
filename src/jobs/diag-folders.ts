@@ -1,12 +1,12 @@
 import { prisma } from "../lib/prisma";
 
 async function main() {
-  const orgId = "cmmwbmlnh0000ad6hj6zrkqrz";
-  const org = await prisma.organization.findUnique({ where: { id: orgId } });
+  const teamId = "cmmwbmlnh0000ad6hj6zrkqrz";
+  const org = await prisma.team.findUnique({ where: { id: teamId } });
   console.log("Org:", org);
 
   const accounts = await prisma.emailAccount.findMany({
-    where: { organizationId: orgId },
+    where: { teamId: teamId },
     select: { id: true, emailAddress: true, provider: true, lastSyncAt: true, foldersDeltaLink: true },
   });
   console.log(`\n${accounts.length} email account(s):`);

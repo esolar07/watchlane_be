@@ -61,7 +61,7 @@ async function computeHadLateFirstResponse(threadId: string, firstResponseMinute
 async function loadSlaMinutesForThread(threadId: string): Promise<number> {
   const row = await prisma.thread.findUnique({
     where: { id: threadId },
-    select: { organization: { select: { settings: { select: { slaMinutes: true } } } } },
+    select: { team: { select: { settings: { select: { slaMinutes: true } } } } },
   });
-  return row?.organization.settings?.slaMinutes ?? DEFAULT_SLA_MINUTES;
+  return row?.team.settings?.slaMinutes ?? DEFAULT_SLA_MINUTES;
 }

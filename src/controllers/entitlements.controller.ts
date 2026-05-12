@@ -5,8 +5,8 @@ import { NotAuthorizedError } from "../lib/errors";
 
 async function loadWorkspaceUsage(workspaceId: string) {
   const [mailboxesUsed, orgsUsed] = await Promise.all([
-    prisma.emailAccount.count({ where: { organization: { workspaceId } } }),
-    prisma.organization.count({ where: { workspaceId } }),
+    prisma.emailAccount.count({ where: { team: { workspaceId } } }),
+    prisma.team.count({ where: { workspaceId } }),
   ]);
   return { mailboxes_used: mailboxesUsed, orgs_used: orgsUsed };
 }

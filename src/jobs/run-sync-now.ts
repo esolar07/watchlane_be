@@ -3,7 +3,7 @@ import { syncMailbox } from "../services/microsoft-mail.service";
 
 async function main() {
   const accounts = await prisma.emailAccount.findMany({
-    where: { organizationId: "cmmwbmlnh0000ad6hj6zrkqrz" },
+    where: { teamId: "cmmwbmlnh0000ad6hj6zrkqrz" },
     select: { id: true, emailAddress: true },
   });
   for (const acc of accounts) {
