@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { authenticate, attachWorkspaceContext } from "../middleware/auth";
-import { listTeams, createTeam, getTeam, updateTeam, regenerateTeamInviteCode } from "../controllers/team.controller";
+import { listTeams, createTeam, getTeam, updateTeam } from "../controllers/team.controller";
+import { listTeamMembers, addTeamMember, updateTeamMember, removeTeamMember } from "../controllers/team-member.controller";
 
 const router = Router();
 
@@ -8,6 +9,10 @@ router.get("/", authenticate, listTeams);
 router.post("/", authenticate, attachWorkspaceContext, createTeam);
 router.get("/:id", authenticate, getTeam);
 router.put("/:id", authenticate, updateTeam);
-router.post("/:id/regenerate-invite", authenticate, regenerateTeamInviteCode);
+
+router.get("/:teamId/members", authenticate, listTeamMembers);
+router.post("/:teamId/members", authenticate, addTeamMember);
+router.patch("/:teamId/members/:memberId", authenticate, updateTeamMember);
+router.delete("/:teamId/members/:memberId", authenticate, removeTeamMember);
 
 export default router;

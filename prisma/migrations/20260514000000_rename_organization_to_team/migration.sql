@@ -62,13 +62,8 @@ ALTER TABLE "Team"           ADD CONSTRAINT "Team_workspaceId_fkey" FOREIGN KEY 
 
 ALTER TYPE "OrganizationRole" RENAME TO "TeamRole";
 
-UPDATE "MonitoringRule" SET "scopeKind" = 'TEAM' WHERE "scopeKind"::text = 'ORGANIZATION';
-ALTER TYPE "RuleScopeKind" RENAME TO "RuleScopeKind_old";
-CREATE TYPE "RuleScopeKind" AS ENUM ('TEAM', 'ACCOUNT', 'FOLDER');
-ALTER TABLE "MonitoringRule"
-  ALTER COLUMN "scopeKind" DROP DEFAULT,
-  ALTER COLUMN "scopeKind" TYPE "RuleScopeKind" USING "scopeKind"::text::"RuleScopeKind",
-  ALTER COLUMN "scopeKind" SET DEFAULT 'TEAM';
-DROP TYPE "RuleScopeKind_old";
+ALTER TABLE "MonitoringRule" ALTER COLUMN "scopeKind" DROP DEFAULT;
+ALTER TYPE "RuleScopeKind" RENAME VALUE 'ORGANIZATION' TO 'TEAM';
+ALTER TABLE "MonitoringRule" ALTER COLUMN "scopeKind" SET DEFAULT 'TEAM';
 
 UPDATE "PlanFeature" SET "key" = 'team_limit' WHERE "key" = 'org_limit';

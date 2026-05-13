@@ -147,9 +147,3 @@ export function requireRole(...roles: TeamRole[]) {
   };
 }
 
-export async function requireOnboardingComplete(req: Request, res: Response, next: NextFunction) {
-  if (!req.user) { res.status(401).json({ error: "Authentication required" }); return; }
-  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user.userId }, select: { onboardingCompletedAt: true } });
-  if (!user.onboardingCompletedAt) { res.status(403).json({ error: "Onboarding required", code: "ONBOARDING_REQUIRED" }); return; }
-  next();
-}

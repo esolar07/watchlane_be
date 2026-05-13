@@ -13,6 +13,7 @@ import {
 import { syncMailbox } from "../services/microsoft-mail.service";
 import { assertWithinLimit } from "../services/entitlements.service";
 import { HttpError } from "../lib/errors";
+import { ensureUserHasWorkspace, ensureUserHasFirstTeam, defaultWorkspaceName } from "../services/workspace.service";
 
 const googleClient = new OAuth2Client(
   config.google.clientId,
@@ -28,9 +29,16 @@ const cookieOptions = {
 };
 
 async function findOrCreateUser(email: string, name?: string) {
+  const user = await upsertUserByEmail(email, name);
+  const workspaceId = await ensureUserHasWorkspace(user.id, defaultWorkspaceName(user.name ?? name, email));
+  await ensureUserHasFirstTeam(user.id, workspaceId);
+  return user;
+}
+
+async function upsertUserByEmail(email: string, name?: string) {
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
-    if (name) await prisma.user.update({ where: { email }, data: { name } });
+    if (name && name !== existing.name) await prisma.user.update({ where: { id: existing.id }, data: { name } });
     return existing;
   }
   const freePlanId = await resolveFreePlanId();
@@ -96,13 +104,11 @@ export async function microsoftCallback(req: Request, res: Response) {
 
   const stateRaw = req.query.state as string | undefined;
   let flow = "sso";
-  let inviteCode: string | undefined;
   let teamId: string | undefined;
   if (stateRaw) {
     try {
       const parsed = JSON.parse(Buffer.from(stateRaw, "base64url").toString());
       flow = parsed.flow ?? "sso";
-      inviteCode = parsed.inviteCode;
       teamId = parsed.teamId;
     } catch {
       // unparseable state — default to SSO
@@ -111,9 +117,6 @@ export async function microsoftCallback(req: Request, res: Response) {
 
   if (flow === "mailbox" && teamId) {
     return handleMailboxCallback(req, res, code, teamId);
-  }
-  if (flow === "invite" && inviteCode) {
-    return handleInviteCallback(res, code, inviteCode);
   }
   return handleSsoCallback(res, code);
 }
@@ -213,79 +216,6 @@ async function assertMailboxLimitOnCreate(teamId: string, emailAddress: string):
   await assertWithinLimit(org.workspaceId, "mailbox_limit", currentCount);
 }
 
-async function handleInviteCallback(res: Response, code: string, inviteCode: string) {
-  const tokens = await exchangeCodeForTokens(code, MICROSOFT_SSO_SCOPES);
-  if (!tokens.id_token) {
-    res.status(400).json({ error: "No ID token returned by Microsoft" });
-    return;
-  }
-  const claims = decodeIdToken(tokens.id_token);
-  const email = claims.email ?? claims.preferred_username;
-  const name = claims.name;
-  if (!email) {
-    res.status(400).json({ error: "Email not provided by Microsoft" });
-    return;
-  }
-
-  const org = await prisma.team.findUnique({ where: { inviteCode } });
-  if (!org) {
-    res.status(400).json({ error: "Invalid invite code" });
-    return;
-  }
-
-  const user = await findOrCreateUser(email, name);
-
-  const existingMembership = await prisma.teamMember.findUnique({
-    where: { userId_teamId: { userId: user.id, teamId: org.id } },
-  });
-
-  if (!existingMembership) {
-    await prisma.teamMember.create({
-      data: {
-        userId: user.id,
-        teamId: org.id,
-        role: "MEMBER",
-      },
-    });
-  }
-
-  if (!user.onboardingCompletedAt) {
-    await prisma.user.update({ where: { id: user.id }, data: { onboardingCompletedAt: new Date() } });
-  }
-
-  const jwt = signToken({ userId: user.id, email: user.email });
-  res.cookie("token", jwt, cookieOptions);
-  res.redirect(config.frontendUrl);
-}
-
-// ── Invite URL (unauthenticated endpoint) ───────────────────────────
-
-export async function getInviteAuthUrl(req: Request, res: Response) {
-  const inviteCode = req.query.inviteCode as string | undefined;
-  if (!inviteCode) {
-    res.status(400).json({ error: "inviteCode query parameter is required" });
-    return;
-  }
-
-  const org = await prisma.team.findUnique({ where: { inviteCode } });
-  if (!org) {
-    res.status(404).json({ error: "Invalid invite code" });
-    return;
-  }
-
-  const state = Buffer.from(JSON.stringify({ flow: "invite", inviteCode })).toString("base64url");
-  const msParams = new URLSearchParams({
-    client_id: config.microsoft.clientId,
-    response_type: "code",
-    redirect_uri: config.microsoft.redirectUri,
-    response_mode: "query",
-    scope: MICROSOFT_SSO_SCOPES.join(" "),
-    state,
-  });
-  const url = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?${msParams}`;
-  res.json({ url, teamName: org.name });
-}
-
 // ── Mailbox connect URL (authenticated endpoint) ───────────────────
 
 export async function getMailboxConnectUrl(req: Request, res: Response) {
@@ -356,8 +286,8 @@ export async function devSeed(_req: Request, res: Response) {
   const freePlanId = await resolveFreePlanId();
   const user = await prisma.user.upsert({
     where: { email: "test@watchlane.dev" },
-    update: { onboardingCompletedAt: new Date() },
-    create: { email: "test@watchlane.dev", name: "Test User", currentPlanId: freePlanId, onboardingCompletedAt: new Date() },
+    update: {},
+    create: { email: "test@watchlane.dev", name: "Test User", currentPlanId: freePlanId },
   });
   const workspace = await prisma.workspace.upsert({
     where: { id: "test-workspace-id" },

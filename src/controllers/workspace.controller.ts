@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { prisma } from "../lib/prisma";
 import { NotAuthorizedError, ValidationError } from "../lib/errors";
 import { createOwnedWorkspace } from "../services/workspace.service";
+import { findOrCreatePlaceholderUser } from "../services/user.service";
 import { assertWithinLimitForUser, invalidate } from "../services/entitlements.service";
 import type { WorkspaceAccessRole } from "../types/auth";
 import type { WorkspaceRole } from "../generated/prisma/client";
@@ -16,7 +17,7 @@ const WORKSPACE_SUMMARY_SELECT = {
 
 interface CreateWorkspaceBody { name?: string }
 interface UpdateWorkspaceBody { name?: string }
-interface AddMemberBody { userId: string; role?: WorkspaceRole }
+interface AddMemberBody { email: string; role?: WorkspaceRole }
 interface UpdateMemberBody { role: WorkspaceRole }
 
 function assertOwnerOrAdmin(role: WorkspaceAccessRole, message: string): void {
@@ -90,15 +91,26 @@ export async function listWorkspaceMembers(req: Request, res: Response) {
 export async function addWorkspaceMember(req: Request<{}, {}, AddMemberBody>, res: Response) {
   if (!req.workspace) throw new NotAuthorizedError("Workspace context required");
   assertOwnerOrAdmin(req.workspace.role, "Only OWNER or ADMIN can add workspace members");
-  const { userId, role = "MEMBER" } = req.body ?? {};
-  if (!userId) throw new ValidationError("userId is required");
-  const member = await prisma.workspaceMember.upsert({
-    where: { userId_workspaceId: { userId, workspaceId: req.workspace.workspaceId } },
-    create: { userId, workspaceId: req.workspace.workspaceId, role },
+  const { email, role = "MEMBER" } = req.body ?? ({} as AddMemberBody);
+  if (!email) throw new ValidationError("email is required");
+  const user = await findOrCreatePlaceholderUser(email);
+  await rejectIfWorkspaceOwner(user.id, req.workspace.workspaceId);
+  const member = await upsertWorkspaceMember(user.id, req.workspace.workspaceId, role);
+  res.status(201).json({ member });
+}
+
+async function rejectIfWorkspaceOwner(userId: string, workspaceId: string): Promise<void> {
+  const workspace = await prisma.workspace.findUniqueOrThrow({ where: { id: workspaceId }, select: { ownerUserId: true } });
+  if (workspace.ownerUserId === userId) throw new ValidationError("User is already the workspace owner");
+}
+
+async function upsertWorkspaceMember(userId: string, workspaceId: string, role: WorkspaceRole) {
+  return prisma.workspaceMember.upsert({
+    where: { userId_workspaceId: { userId, workspaceId } },
+    create: { userId, workspaceId, role },
     update: { role },
     include: { user: { select: { id: true, email: true, name: true } } },
   });
-  res.status(201).json({ member });
 }
 
 export async function updateWorkspaceMember(req: Request<{ memberId: string }, {}, UpdateMemberBody>, res: Response) {

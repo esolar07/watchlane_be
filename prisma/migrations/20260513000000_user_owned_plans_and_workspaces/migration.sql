@@ -2,9 +2,8 @@
 -- Forward-only; zero-loss backfill.
 
 -- 1. Add new columns nullable so backfill can run before NOT NULL is enforced.
-ALTER TABLE "User"      ADD COLUMN "currentPlanId"         TEXT;
-ALTER TABLE "User"      ADD COLUMN "onboardingCompletedAt" TIMESTAMP(3);
-ALTER TABLE "Workspace" ADD COLUMN "ownerUserId"           TEXT;
+ALTER TABLE "User"      ADD COLUMN "currentPlanId" TEXT;
+ALTER TABLE "Workspace" ADD COLUMN "ownerUserId"   TEXT;
 
 -- 2. Backfill Workspace.ownerUserId from the earliest OWNER membership.
 UPDATE "Workspace" w SET "ownerUserId" = sub."userId"

@@ -4,7 +4,7 @@ import { getDashboardMetrics } from "../services/dashboard.service";
 import { getOperationalSnapshot } from "../services/dashboard-operational.service";
 import { getPerformanceReport } from "../services/dashboard-performance.service";
 import { getAggregateDashboard } from "../services/dashboard-aggregate.service";
-import { getOrgDashboard } from "../services/dashboard-org.service";
+import { getTeamDashboard } from "../services/dashboard-team.service";
 import { syncUserMailboxes } from "../jobs/sync-mailboxes";
 
 export async function getSummary(req: Request, res: Response) {
@@ -149,8 +149,8 @@ export async function triggerSync(req: Request, res: Response) {
 }
 
 export async function getOperational(req: Request, res: Response) {
-  const orgError = await ensureOrgMembership(req, res);
-  if (orgError) return;
+  const teamError = await ensureTeamMembership(req, res);
+  if (teamError) return;
   const repId = req.query.repId as string | undefined;
   const snapshot = await getOperationalSnapshot({ teamId: req.team!.teamId, repId });
   res.json(snapshot);
@@ -183,22 +183,22 @@ async function loadUserTeamIds(userId: string): Promise<string[]> {
   return memberships.map((m) => m.teamId);
 }
 
-export async function getOrgDashboardEndpoint(req: Request, res: Response) {
-  const orgError = await ensureOrgMembership(req, res);
-  if (orgError) return;
+export async function getTeamDashboardEndpoint(req: Request, res: Response) {
+  const teamError = await ensureTeamMembership(req, res);
+  if (teamError) return;
   const range = parseDateRange(req);
   if (range.error) {
     res.status(400).json({ error: range.error });
     return;
   }
   const repId = req.query.repId as string | undefined;
-  const dashboard = await getOrgDashboard({ teamId: req.team!.teamId, startDate: range.start!, endDate: range.end!, repId });
+  const dashboard = await getTeamDashboard({ teamId: req.team!.teamId, startDate: range.start!, endDate: range.end!, repId });
   res.json(dashboard);
 }
 
 export async function getPerformance(req: Request, res: Response) {
-  const orgError = await ensureOrgMembership(req, res);
-  if (orgError) return;
+  const teamError = await ensureTeamMembership(req, res);
+  if (teamError) return;
   const range = parseDateRange(req);
   if (range.error) {
     res.status(400).json({ error: range.error });
@@ -209,7 +209,7 @@ export async function getPerformance(req: Request, res: Response) {
   res.json(report);
 }
 
-async function ensureOrgMembership(req: Request, res: Response): Promise<boolean> {
+async function ensureTeamMembership(req: Request, res: Response): Promise<boolean> {
   if (!req.team) {
     res.status(403).json({ error: "Team context required" });
     return true;

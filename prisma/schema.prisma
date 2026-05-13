@@ -82,18 +82,17 @@ enum RuleScopeKind {
 // MODELS
 //////////////////////////////////////////////////////
 model User {
-  id                    String            @id @default(uuid())
-  email                 String            @unique
-  name                  String?
-  currentPlanId         String
-  onboardingCompletedAt DateTime?
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @updatedAt
-  currentPlan           Plan              @relation("UserCurrentPlan", fields: [currentPlanId], references: [id])
-  ownedWorkspaces       Workspace[]       @relation("WorkspaceOwner")
-  teamMemberships       TeamMember[]
-  workspaceMemberships  WorkspaceMember[]
-  emailAccounts         EmailAccount[]
+  id                   String            @id @default(uuid())
+  email                String            @unique
+  name                 String?
+  currentPlanId        String
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  currentPlan          Plan              @relation("UserCurrentPlan", fields: [currentPlanId], references: [id])
+  ownedWorkspaces      Workspace[]       @relation("WorkspaceOwner")
+  teamMemberships      TeamMember[]
+  workspaceMemberships WorkspaceMember[]
+  emailAccounts        EmailAccount[]
 
   @@index([currentPlanId])
 }
@@ -128,7 +127,6 @@ model Team {
   id            String           @id @default(cuid())
   workspaceId   String
   name          String
-  inviteCode    String           @unique @default(uuid())
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
   workspace     Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Restrict)

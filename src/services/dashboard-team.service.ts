@@ -3,7 +3,7 @@ import { getPerformanceReport } from "./dashboard-performance.service";
 
 const DEFAULT_SLA_MINUTES = 560;
 
-interface OrgDashboardParams {
+interface TeamDashboardParams {
   teamId: string;
   startDate: Date;
   endDate: Date;
@@ -52,7 +52,7 @@ interface PerformanceSection {
   avgResponseFormatted: string;
 }
 
-interface OrgDashboard {
+interface TeamDashboard {
   teamId: string;
   teamName: string;
   slaTarget: number;
@@ -63,7 +63,7 @@ interface OrgDashboard {
   performance: PerformanceSection;
 }
 
-export async function getOrgDashboard(params: OrgDashboardParams): Promise<OrgDashboard> {
+export async function getTeamDashboard(params: TeamDashboardParams): Promise<TeamDashboard> {
   const org = await prisma.team.findUniqueOrThrow({
     where: { id: params.teamId },
     select: { name: true, settings: { select: { slaMinutes: true } } },
@@ -87,7 +87,7 @@ async function loadLastSyncAt(teamId: string, repId?: string): Promise<Date | nu
   return accounts[0]?.lastSyncAt ?? null;
 }
 
-async function loadOpenThreadRows(params: OrgDashboardParams, slaTarget: number): Promise<ThreadRow[]> {
+async function loadOpenThreadRows(params: TeamDashboardParams, slaTarget: number): Promise<ThreadRow[]> {
   const threads = await prisma.thread.findMany({
     where: {
       teamId: params.teamId,
@@ -159,7 +159,7 @@ function buildKpis(rows: ThreadRow[]): KpiSection {
   };
 }
 
-async function buildActivityFeed(params: OrgDashboardParams, openThreadRows: ThreadRow[]): Promise<ActivityItem[]> {
+async function buildActivityFeed(params: TeamDashboardParams, openThreadRows: ThreadRow[]): Promise<ActivityItem[]> {
   const items: ActivityItem[] = [];
   for (const row of openThreadRows.filter((r) => r.status === "Overdue")) items.push(makeOverdueItem(row));
   for (const row of openThreadRows.filter((r) => r.status === "At Risk")) items.push(makeAtRiskItem(row));
@@ -196,7 +196,7 @@ function makeAtRiskItem(row: ThreadRow): ActivityItem {
   };
 }
 
-async function buildRecentCoveredItems(params: OrgDashboardParams): Promise<ActivityItem[]> {
+async function buildRecentCoveredItems(params: TeamDashboardParams): Promise<ActivityItem[]> {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const threads = await prisma.thread.findMany({
     where: {
@@ -233,7 +233,7 @@ function makeCoveredItem(
   };
 }
 
-async function buildSyncItems(params: OrgDashboardParams): Promise<ActivityItem[]> {
+async function buildSyncItems(params: TeamDashboardParams): Promise<ActivityItem[]> {
   const accounts = await prisma.emailAccount.findMany({
     where: { teamId: params.teamId, ...(params.repId && { userId: params.repId }) },
     select: { emailAddress: true, lastSyncAt: true, tokenExpiresAt: true },
@@ -253,7 +253,7 @@ function sortActivity(items: ActivityItem[]): ActivityItem[] {
   return items.sort((a, b) => priority[a.type] - priority[b.type] || b.timestamp.getTime() - a.timestamp.getTime());
 }
 
-async function buildPerformanceSection(params: OrgDashboardParams): Promise<PerformanceSection> {
+async function buildPerformanceSection(params: TeamDashboardParams): Promise<PerformanceSection> {
   const report = await getPerformanceReport({ teamId: params.teamId, startDate: params.startDate, endDate: params.endDate, repId: params.repId });
   return {
     slaCompliancePercent: report.compliancePercent,

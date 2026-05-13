@@ -91,7 +91,6 @@ export async function createTeam(req: Request<{}, {}, CreateTeamBody>, res: Resp
     name: result.team.name,
     workspaceId: result.team.workspaceId,
     role: result.member.role,
-    inviteCode: result.team.inviteCode,
     settings: {
       slaMinutes: result.settings.slaMinutes,
       slaEnabled: result.settings.slaEnabled,
@@ -126,7 +125,6 @@ export async function getTeam(req: Request<{ id: string }>, res: Response) {
   }
 
   const team = membership.team;
-  const isAdminOrOwner = membership.role === "OWNER" || membership.role === "ADMIN";
   res.json({
     id: team.id,
     name: team.name,
@@ -134,7 +132,6 @@ export async function getTeam(req: Request<{ id: string }>, res: Response) {
     workspaceName: team.workspace.name,
     role: membership.role,
     createdAt: team.createdAt,
-    ...(isAdminOrOwner && { inviteCode: team.inviteCode }),
     settings: team.settings ?? null,
     members: team.members.map((m) => ({
       name: m.user.name,
@@ -213,18 +210,3 @@ export async function updateTeam(req: Request<{ id: string }, {}, UpdateTeamBody
   });
 }
 
-export async function regenerateTeamInviteCode(req: Request<{ id: string }>, res: Response) {
-  const { id } = req.params;
-  const userId = req.user!.userId;
-  const membership = await prisma.teamMember.findUnique({ where: { userId_teamId: { userId, teamId: id } } });
-  if (!membership) {
-    res.status(404).json({ error: "Team not found" });
-    return;
-  }
-  if (membership.role !== "OWNER" && membership.role !== "ADMIN") {
-    res.status(403).json({ error: "Only OWNER or ADMIN can regenerate the invite code" });
-    return;
-  }
-  const team = await prisma.team.update({ where: { id }, data: { inviteCode: crypto.randomUUID() } });
-  res.json({ inviteCode: team.inviteCode });
-}

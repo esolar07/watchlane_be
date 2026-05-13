@@ -10,7 +10,6 @@ const ME_SELECT = {
   id: true,
   email: true,
   name: true,
-  onboardingCompletedAt: true,
   currentPlan: { select: { slug: true, name: true } },
 } as const;
 
