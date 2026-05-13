@@ -12,6 +12,9 @@ const required = [
   "MICROSOFT_REDIRECT_URI",
   "ENCRYPTION_KEY",
   "FRONTEND_URL",
+  "MAILGUN_API_KEY",
+  "MAILGUN_DOMAIN",
+  "EMAIL_FROM_ADDRESS",
 ] as const;
 
 const missing = required.filter((key) => !process.env[key]);
@@ -43,4 +46,13 @@ export const config = {
   encryptionKey: process.env.ENCRYPTION_KEY!,
   frontendUrl: process.env.FRONTEND_URL!,
   adminEmails: parseAdminEmails(process.env.ADMIN_EMAILS),
+  mailgun: {
+    apiKey: process.env.MAILGUN_API_KEY!,
+    domain: process.env.MAILGUN_DOMAIN!,
+    endpoint: process.env.MAILGUN_ENDPOINT,
+  },
+  email: {
+    fromAddress: process.env.EMAIL_FROM_ADDRESS!,
+    fromName: process.env.EMAIL_FROM_NAME ?? "Watchlane",
+  },
 } as const;

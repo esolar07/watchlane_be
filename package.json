@@ -7,6 +7,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "migrate:folders": "ts-node src/jobs/run-folder-migration.ts",
+    "email:test-welcome": "ts-node src/jobs/send-test-welcome.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -21,8 +22,10 @@
     "cors": "^2.8.6",
     "dotenv": "^17.2.4",
     "express": "^5.2.1",
+    "form-data": "^4.0.5",
     "google-auth-library": "^10.5.0",
     "jsonwebtoken": "^9.0.3",
+    "mailgun.js": "^13.0.1",
     "node-cron": "^4.2.1",
     "pg": "^8.18.0"
   },

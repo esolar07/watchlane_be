@@ -1,10 +1,20 @@
 import { prisma } from "../lib/prisma";
+import { sendOwnerWelcomeEmail } from "./email-notifications.service";
 
 const DEFAULT_FIRST_TEAM_NAME = "General";
 
 export async function createOwnedWorkspace(userId: string, name: string): Promise<string> {
   const workspace = await prisma.workspace.create({ data: { name, ownerUserId: userId } });
+  void deliverOwnerWelcomeSafely(userId, name);
   return workspace.id;
+}
+
+async function deliverOwnerWelcomeSafely(userId: string, workspaceName: string): Promise<void> {
+  try {
+    await sendOwnerWelcomeEmail(userId, workspaceName);
+  } catch (error) {
+    console.error("[email] Failed to send owner welcome email", error);
+  }
 }
 
 export async function ensureUserHasWorkspace(userId: string, fallbackName: string): Promise<string> {
