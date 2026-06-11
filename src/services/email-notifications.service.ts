@@ -2,6 +2,7 @@ import { prisma } from "../lib/prisma";
 import { config } from "../config/env";
 import { sendEmail } from "./email.service";
 import { buildOwnerWelcomeEmail } from "../lib/email-templates/owner-welcome";
+import { buildMailboxConnectInviteEmail } from "../lib/email-templates/mailbox-invite";
 import { EmailRecipient } from "../types/email-provider";
 
 function getDefaultSender(): EmailRecipient {
@@ -22,4 +23,13 @@ export async function sendOwnerWelcomeEmail(userId: string, workspaceName: strin
   const content = buildOwnerWelcomeEmail({ ownerName, workspaceName });
   const recipient: EmailRecipient = { name: user.name ?? undefined, address: user.email };
   await sendEmail({ from: getDefaultSender(), to: [recipient], ...content });
+}
+
+export async function sendMailboxConnectInviteEmail(recipientEmail: string, teamName: string, inviteUrl: string): Promise<void> {
+  const content = buildMailboxConnectInviteEmail({ teamName, inviteUrl });
+  await sendEmail({
+    from: getDefaultSender(),
+    to: [{ address: recipientEmail }],
+    ...content,
+  });
 }

@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import routes from "./routes";
+import publicInviteRoutes from "./routes/public-invite.routes";
 import { errorHandler } from "./middleware/errorHandler";
 import { syncAllMailboxes } from "./jobs/sync-mailboxes";
 import { schedule } from "node-cron";
@@ -23,6 +24,7 @@ app.get("/", (_req, res) => {
 });
 
 app.use("/api", routes);
+app.use("/invite", publicInviteRoutes);
 
 app.use(errorHandler);
 

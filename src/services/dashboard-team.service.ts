@@ -1,5 +1,6 @@
 import { prisma } from "../lib/prisma";
 import { getPerformanceReport } from "./dashboard-performance.service";
+import { resolveMailboxOwnerName } from "../lib/mailbox-owner";
 
 const DEFAULT_SLA_MINUTES = 560;
 
@@ -116,7 +117,7 @@ function buildThreadRow(
     subject: string | null;
     lastInboundAt: Date | null;
     folderIds: string[];
-    emailAccount: { emailAddress: string; user: { name: string | null } };
+    emailAccount: { emailAddress: string; user: { name: string | null } | null };
     messages: { sender: string }[];
   },
   folderPathMap: Map<string, string>,
@@ -130,7 +131,7 @@ function buildThreadRow(
     status: classifyStatus(timeOpenMin, slaTarget),
     from: thread.messages[0]?.sender ?? null,
     subject: thread.subject,
-    owner: thread.emailAccount.user.name,
+    owner: resolveMailboxOwnerName(thread.emailAccount.user),
     emailAddress: thread.emailAccount.emailAddress,
     folderPath: pickPrimaryFolderPath(thread.folderIds, folderPathMap),
     timeOpenMinutes: timeOpenMin,
@@ -215,7 +216,7 @@ async function buildRecentCoveredItems(params: TeamDashboardParams): Promise<Act
 }
 
 function makeCoveredItem(
-  thread: { id: string; subject: string | null; lastOutboundAt: Date | null; lastInboundAt: Date | null; folderIds: string[]; emailAccount: { user: { name: string | null } } },
+  thread: { id: string; subject: string | null; lastOutboundAt: Date | null; lastInboundAt: Date | null; folderIds: string[]; emailAccount: { user: { name: string | null } | null } },
   folderPathMap: Map<string, string>
 ): ActivityItem {
   const responseMinutes = thread.lastInboundAt && thread.lastOutboundAt && thread.lastOutboundAt > thread.lastInboundAt
@@ -226,7 +227,7 @@ function makeCoveredItem(
     message: responseMinutes !== null ? `Replied to '${thread.subject ?? "Untitled"}' in ${responseMinutes} minutes` : `Replied to '${thread.subject ?? "Untitled"}'`,
     threadId: thread.id,
     subject: thread.subject,
-    ownerName: thread.emailAccount.user.name,
+    ownerName: resolveMailboxOwnerName(thread.emailAccount.user),
     folderPath: pickPrimaryFolderPath(thread.folderIds, folderPathMap),
     responseMinutes: responseMinutes ?? undefined,
     timestamp: thread.lastOutboundAt!,

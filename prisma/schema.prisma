@@ -93,6 +93,7 @@ model User {
   teamMemberships      TeamMember[]
   workspaceMemberships WorkspaceMember[]
   emailAccounts        EmailAccount[]
+  createdMailboxConnectInvites MailboxConnectInvite[] @relation("MailboxInviteCreatedBy")
 
   @@index([currentPlanId])
 }
@@ -139,6 +140,7 @@ model Team {
   evaluations   Evaluation[]
   alerts        Alert[]
   settings      TeamSettings?
+  mailboxConnectInvites MailboxConnectInvite[]
 
   @@index([workspaceId])
 }
@@ -156,7 +158,7 @@ model TeamMember {
 
 model EmailAccount {
   id               String           @id @default(cuid())
-  userId           String
+  userId           String?
   teamId           String
   provider         EmailProvider
   emailAddress     String
@@ -167,13 +169,28 @@ model EmailAccount {
   foldersDeltaLink String?
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
-  user             User             @relation(fields: [userId], references: [id])
+  user             User?            @relation(fields: [userId], references: [id])
   team             Team             @relation(fields: [teamId], references: [id])
   threads          Thread[]
   folders          EmailFolder[]
   scopedRules      MonitoringRule[] @relation("RuleAccountScope")
 
   @@unique([provider, emailAddress, teamId])
+}
+
+model MailboxConnectInvite {
+  id              String    @id @default(cuid())
+  teamId          String
+  token           String    @unique
+  createdByUserId String
+  sentToEmail     String?
+  createdAt       DateTime  @default(now())
+  revokedAt       DateTime?
+  team            Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdBy       User      @relation("MailboxInviteCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@index([teamId])
+  @@index([token])
 }
 
 model EmailFolder {

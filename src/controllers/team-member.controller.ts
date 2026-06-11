@@ -1,20 +1,14 @@
 import type { Request, Response } from "express";
 import { prisma } from "../lib/prisma";
-import { NotAuthorizedError, ValidationError } from "../lib/errors";
+import { ValidationError } from "../lib/errors";
 import { findOrCreatePlaceholderUser } from "../services/user.service";
+import { assertCallerCanManageTeam } from "../services/team-access.service";
 import type { TeamRole } from "../generated/prisma/client";
 
 interface AddMemberBody { email: string; role?: TeamRole }
 interface UpdateMemberBody { role: TeamRole }
 
 const MEMBER_USER_SELECT = { id: true, email: true, name: true } as const;
-
-async function assertCallerCanManageTeam(callerUserId: string, teamId: string): Promise<void> {
-  const team = await prisma.team.findUniqueOrThrow({ where: { id: teamId }, select: { workspace: { select: { ownerUserId: true } } } });
-  if (team.workspace.ownerUserId === callerUserId) return;
-  const membership = await prisma.teamMember.findUnique({ where: { userId_teamId: { userId: callerUserId, teamId } }, select: { role: true } });
-  if (!membership || (membership.role !== "OWNER" && membership.role !== "ADMIN")) throw new NotAuthorizedError("Only team OWNER/ADMIN or workspace owner can manage team members");
-}
 
 export async function listTeamMembers(req: Request<{ teamId: string }>, res: Response) {
   const teamId = req.params.teamId;

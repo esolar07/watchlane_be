@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma";
+import { resolveMailboxOwnerName } from "../lib/mailbox-owner";
 
 interface DashboardMetricsParams {
   teamId: string;
@@ -114,7 +115,7 @@ export async function getDashboardMetrics({
   for (const thread of threads) {
     if (!thread.firstInboundAt) continue;
 
-    const ownerName = thread.emailAccount.user.name;
+    const ownerName = resolveMailboxOwnerName(thread.emailAccount.user);
     const label = thread.subject ?? "Untitled thread";
     const folderPath = pickPrimaryFolderPath(thread.folderIds, folderPathsById);
     const hasValidResponse = thread.firstResponseMinutes !== null && thread.firstResponseMinutes >= 0;
@@ -272,7 +273,7 @@ function buildOpenThread(
     subject: string | null;
     lastInboundAt: Date | null;
     folderIds: string[];
-    emailAccount: { emailAddress: string; user: { name: string | null } };
+    emailAccount: { emailAddress: string; user: { name: string | null } | null };
   },
   folderPathMap: Map<string, string>,
   slaMs: number
@@ -283,7 +284,7 @@ function buildOpenThread(
   return {
     threadId: thread.id,
     subject: thread.subject,
-    ownerName: thread.emailAccount.user.name,
+    ownerName: resolveMailboxOwnerName(thread.emailAccount.user),
     emailAddress: thread.emailAccount.emailAddress,
     folderPath: pickPrimaryFolderPath(thread.folderIds, folderPathMap),
     lastInboundAt,

@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma";
+import { resolveMailboxOwnerName } from "../lib/mailbox-owner";
 
 const DEFAULT_SLA_MINUTES = 560;
 
@@ -121,7 +122,7 @@ function buildOpenThread(
     subject: string | null;
     lastInboundAt: Date | null;
     folderIds: string[];
-    emailAccount: { emailAddress: string; user: { name: string | null } };
+    emailAccount: { emailAddress: string; user: { name: string | null } | null };
   },
   folderPathMap: Map<string, string>,
   slaMs: number
@@ -131,7 +132,7 @@ function buildOpenThread(
   return {
     threadId: thread.id,
     subject: thread.subject,
-    ownerName: thread.emailAccount.user.name,
+    ownerName: resolveMailboxOwnerName(thread.emailAccount.user),
     emailAddress: thread.emailAccount.emailAddress,
     folderPath: pickPrimaryFolderPath(thread.folderIds, folderPathMap),
     lastInboundAt,
@@ -195,7 +196,7 @@ async function buildRecentCoveredActivity(params: OperationalParams): Promise<Op
 }
 
 function makeCoveredItem(
-  thread: { id: string; subject: string | null; lastOutboundAt: Date | null; lastInboundAt: Date | null; folderIds: string[]; emailAccount: { user: { name: string | null } } },
+  thread: { id: string; subject: string | null; lastOutboundAt: Date | null; lastInboundAt: Date | null; folderIds: string[]; emailAccount: { user: { name: string | null } | null } },
   folderPathMap: Map<string, string>
 ): OperationalActivityItem {
   const responseMinutes = thread.lastInboundAt ? Math.round((thread.lastOutboundAt!.getTime() - thread.lastInboundAt.getTime()) / 60_000) : null;
@@ -207,7 +208,7 @@ function makeCoveredItem(
     message: messageBody,
     threadId: thread.id,
     subject: thread.subject,
-    ownerName: thread.emailAccount.user.name,
+    ownerName: resolveMailboxOwnerName(thread.emailAccount.user),
     folderPath: pickPrimaryFolderPath(thread.folderIds, folderPathMap),
     responseMinutes: responseMinutes ?? undefined,
     timestamp: thread.lastOutboundAt!,
@@ -237,7 +238,7 @@ async function buildRecentDismissedActivity(params: OperationalParams): Promise<
 }
 
 function makeDismissedItem(
-  thread: { id: string; subject: string | null; dismissedAt: Date | null; folderIds: string[]; emailAccount: { user: { name: string | null } } },
+  thread: { id: string; subject: string | null; dismissedAt: Date | null; folderIds: string[]; emailAccount: { user: { name: string | null } | null } },
   folderPathMap: Map<string, string>
 ): OperationalActivityItem {
   return {
@@ -245,7 +246,7 @@ function makeDismissedItem(
     message: `Thread '${thread.subject ?? "Untitled"}' was deleted from inbox`,
     threadId: thread.id,
     subject: thread.subject,
-    ownerName: thread.emailAccount.user.name,
+    ownerName: resolveMailboxOwnerName(thread.emailAccount.user),
     folderPath: pickPrimaryFolderPath(thread.folderIds, folderPathMap),
     timestamp: thread.dismissedAt!,
   };

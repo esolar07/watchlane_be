@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma";
+import { resolveMailboxOwnerName } from "../lib/mailbox-owner";
 
 const DEFAULT_SLA_MINUTES = 560;
 
@@ -98,7 +99,7 @@ interface ThreadRow {
   firstResponseMinutes: number | null;
   hadLateFirstResponse: boolean;
   folderIds: string[];
-  emailAccount: { emailAddress: string; user: { name: string | null } };
+  emailAccount: { emailAddress: string; user: { name: string | null } | null };
 }
 
 function summarizeThreads(threads: ThreadRow[]) {
@@ -130,7 +131,7 @@ function buildLateResponseThread(t: ThreadRow, folderPathMap: Map<string, string
   return {
     threadId: t.id,
     subject: t.subject,
-    ownerName: t.emailAccount.user.name,
+    ownerName: resolveMailboxOwnerName(t.emailAccount.user),
     emailAddress: t.emailAccount.emailAddress,
     folderPath: pickPrimaryFolderPath(t.folderIds, folderPathMap),
     firstInboundAt: t.firstInboundAt!,

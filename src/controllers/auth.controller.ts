@@ -107,16 +107,21 @@ export async function microsoftCallback(req: Request, res: Response) {
   const stateRaw = req.query.state as string | undefined;
   let flow = "sso";
   let teamId: string | undefined;
+  let inviteId: string | undefined;
   if (stateRaw) {
     try {
       const parsed = JSON.parse(Buffer.from(stateRaw, "base64url").toString());
       flow = parsed.flow ?? "sso";
       teamId = parsed.teamId;
+      inviteId = parsed.inviteId;
     } catch {
       // unparseable state — default to SSO
     }
   }
 
+  if (flow === "mailbox_invite" && inviteId) {
+    return handleMailboxInviteCallback(req, res, code, inviteId);
+  }
   if (flow === "mailbox" && teamId) {
     return handleMailboxCallback(req, res, code, teamId);
   }
@@ -169,7 +174,6 @@ async function handleMailboxCallback(req: Request, res: Response, code: string, 
     return;
   }
 
-  const expiresAt = new Date(Date.now() + tokens.expires_in * 1000);
   try {
     await assertMailboxLimitOnCreate(teamId, email);
   } catch (err) {
@@ -179,32 +183,64 @@ async function handleMailboxCallback(req: Request, res: Response, code: string, 
     }
     throw err;
   }
-  const emailAccount = await prisma.emailAccount.upsert({
-    where: {
-      provider_emailAddress_teamId: {
-        provider: "MICROSOFT",
-        emailAddress: email,
-        teamId: teamId,
-      },
-    },
-    update: {
-      accessToken: encrypt(tokens.access_token),
-      refreshToken: tokens.refresh_token ? encrypt(tokens.refresh_token) : null,
-      tokenExpiresAt: expiresAt,
-    },
-    create: {
-      userId: user.userId,
-      teamId: teamId,
-      provider: "MICROSOFT",
-      emailAddress: email,
-      accessToken: encrypt(tokens.access_token),
-      refreshToken: tokens.refresh_token ? encrypt(tokens.refresh_token) : null,
-      tokenExpiresAt: expiresAt,
-    },
-  });
-
+  const emailAccount = await upsertMicrosoftMailboxForTeam({ teamId, userId: user.userId, email, tokens });
   syncMailbox(emailAccount.id).catch(console.error);
   res.redirect(`${config.frontendUrl}/settings/mailbox?connected=true`);
+}
+
+type MicrosoftMailboxUpsertParams = {
+  teamId: string;
+  userId: string | null;
+  email: string;
+  tokens: Awaited<ReturnType<typeof exchangeCodeForTokens>>;
+};
+
+async function upsertMicrosoftMailboxForTeam(params: MicrosoftMailboxUpsertParams) {
+  const tokenExpiresAt = new Date(Date.now() + params.tokens.expires_in * 1000);
+  const credentials = {
+    accessToken: encrypt(params.tokens.access_token),
+    refreshToken: params.tokens.refresh_token ? encrypt(params.tokens.refresh_token) : null,
+    tokenExpiresAt,
+  };
+  return prisma.emailAccount.upsert({
+    where: { provider_emailAddress_teamId: { provider: "MICROSOFT", emailAddress: params.email, teamId: params.teamId } },
+    update: credentials,
+    create: { userId: params.userId, teamId: params.teamId, provider: "MICROSOFT", emailAddress: params.email, ...credentials },
+  });
+}
+
+async function handleMailboxInviteCallback(_req: Request, res: Response, code: string, inviteId: string) {
+  const invite = await prisma.mailboxConnectInvite.findFirst({
+    where: { id: inviteId, revokedAt: null },
+    select: { teamId: true },
+  });
+  if (!invite) {
+    res.status(410).json({ error: "Invite has been revoked or does not exist" });
+    return;
+  }
+  const tokens = await exchangeCodeForTokens(code);
+  if (!tokens.id_token) {
+    res.status(400).json({ error: "No ID token returned by Microsoft" });
+    return;
+  }
+  const claims = decodeIdToken(tokens.id_token);
+  const email = claims.email ?? claims.preferred_username;
+  if (!email) {
+    res.status(400).json({ error: "Email not provided by Microsoft" });
+    return;
+  }
+  try {
+    await assertMailboxLimitOnCreate(invite.teamId, email);
+  } catch (err) {
+    if (err instanceof HttpError) {
+      res.status(err.statusCode).json(err.body ?? { error: err.message });
+      return;
+    }
+    throw err;
+  }
+  const emailAccount = await upsertMicrosoftMailboxForTeam({ teamId: invite.teamId, userId: null, email, tokens });
+  syncMailbox(emailAccount.id).catch(console.error);
+  res.redirect(`${config.frontendUrl}/invite/mailbox/success`);
 }
 
 async function assertMailboxLimitOnCreate(teamId: string, emailAddress: string): Promise<void> {
