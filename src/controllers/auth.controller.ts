@@ -99,6 +99,11 @@ export async function googleCallback(req: Request, res: Response) {
 
 export async function microsoftCallback(req: Request, res: Response) {
   const code = req.query.code as string | undefined;
+  const microsoftError = req.query.error_description ?? req.query.error;
+  if (!code && microsoftError) {
+    redirectWithMicrosoftAuthError(res, new Error(String(microsoftError)));
+    return;
+  }
   if (!code) {
     res.status(400).json({ error: "Missing authorization code" });
     return;
