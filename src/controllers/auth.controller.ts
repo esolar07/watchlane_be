@@ -119,13 +119,28 @@ export async function microsoftCallback(req: Request, res: Response) {
     }
   }
 
-  if (flow === "mailbox_invite" && inviteId) {
-    return handleMailboxInviteCallback(req, res, code, inviteId);
+  try {
+    await dispatchMicrosoftFlow(req, res, { code, flow, teamId, inviteId });
+  } catch (error) {
+    redirectWithMicrosoftAuthError(res, error);
   }
-  if (flow === "mailbox" && teamId) {
-    return handleMailboxCallback(req, res, code, teamId);
-  }
+}
+
+type MicrosoftFlowParams = { code: string; flow: string; teamId?: string; inviteId?: string };
+
+async function dispatchMicrosoftFlow(req: Request, res: Response, params: MicrosoftFlowParams) {
+  const { code, flow, teamId, inviteId } = params;
+  if (flow === "mailbox_invite" && inviteId) return handleMailboxInviteCallback(req, res, code, inviteId);
+  if (flow === "mailbox" && teamId) return handleMailboxCallback(req, res, code, teamId);
   return handleSsoCallback(res, code);
+}
+
+function redirectWithMicrosoftAuthError(res: Response, error: unknown) {
+  console.error("[auth/microsoft] Callback failed:", error);
+  const message = error instanceof Error ? error.message : String(error);
+  const aadCode = message.match(/AADSTS\d+/)?.[0];
+  const reason = aadCode ?? message.slice(0, 200);
+  res.redirect(`${config.frontendUrl}/login?error=${encodeURIComponent(reason)}`);
 }
 
 async function handleSsoCallback(res: Response, code: string) {
